@@ -1,0 +1,83 @@
+services:
+  # 数据库
+  db: # 服务名。在 Docker 内部网络中，你只需要使用 服务名 (Service Name) 来互相访问。
+    image: mysql:8.0
+    container_name: midscene_mysql_db
+    command: --default-authentication-plugin=mysql_native_password --bind-address=0.0.0.0
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: whp1148..
+      MYSQL_DATABASE: midscene_db
+      TZ: Asia/Shanghai
+    healthcheck:
+      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost" ]
+      interval: 5s     # 每 5 秒检查一次
+      timeout: 3s      # 超时时间
+      retries: 10      # 最多重试 10 次 (共 50秒)
+    volumes:
+      - /Users/whp/mysql:/var/lib/mysql
+
+  # Redis 消息队列
+  redis:
+    image: redis:7
+    container_name: midscene_redis
+    restart: always
+
+  # FastAPI 后端
+  backend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.hybrid
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    container_name: midscene_backend
+    volumes:
+      - ./backend:/app
+      - ./reports:/app/reports  # 挂载报告目录
+    restart: always  # <--- 添加这行
+    depends_on:
+      db:
+        condition: service_healthy  # <--- 修改这里: 必须等 db 健康了才启动
+      redis:
+        condition: service_started
+    ports:
+      - "8000:8000"
+
+  # Celery Worker (执行引擎)
+  worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.hybrid
+    # 启动 Celery worker
+    command: celery -A app.tasks worker --loglevel=info
+    container_name: midscene_worker
+    environment:
+      - C_FORCE_ROOT=true  # 允许在容器root下运行
+      - TZ=Asia/Shanghai
+    volumes:
+      - ./backend:/app
+      - ./reports:/app/reports # 必须挂载，用于写入报告
+    restart: always  # <--- 添加这行
+    depends_on:
+      db:
+        condition: service_healthy  # <--- 修改这里
+      redis:
+        condition: service_started
+
+# --- 修改重点如下 ---
+  nginx:
+    # 不再使用 image: nginx:alpine
+    # 改为从 frontend 目录构建
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: midscene_frontend
+    volumes:
+      # 1. 挂载测试报告目录 (这会"叠加"在镜像内的 /usr/share/nginx/html/reports 上)
+      - ./reports:/usr/share/nginx/html/reports
+      # 2. 挂载配置文件
+      - ./docker/nginx.conf:/etc/nginx/nginx.conf
+    ports:
+      - "80:80"
+    depends_on:
+      - backend

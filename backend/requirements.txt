@@ -1,0 +1,14 @@
+fastapi
+uvicorn
+sqlalchemy
+pymysql
+celery
+redis
+python-multipart
+python-jose[cryptography]
+passlib[bcrypt]
+# --- 核心修复 ---
+bcrypt==4.0.1
+# ----------------
+requests
+APScheduler==3.10.4
