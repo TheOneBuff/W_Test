@@ -39,7 +39,6 @@
           </template>
         </el-table-column>
         <el-table-column label="状态" width="100">
-          <el-table-column label="状态" width="100">
           <template #default="{ row }">
             <el-switch
               v-model="row.is_enabled"
@@ -47,7 +46,6 @@
               :loading="row._switching"
             />
           </template>
-        </el-table-column>
         </el-table-column>
 
         <el-table-column label="操作" width="250" fixed="right">
