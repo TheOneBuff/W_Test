@@ -53,6 +53,7 @@ def update_config(
     config.model_name = data.model_name
     config.base_url = data.base_url
     config.model_family = data.model_family
+    config.memo = data.memo
     # 关键逻辑：只有当用户输入了新的 Key (不包含星号) 时才更新
     # 简单的判断：如果包含 **** 则认为是掩码，不更新
     if data.api_key and "****" not in data.api_key:

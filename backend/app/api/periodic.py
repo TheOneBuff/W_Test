@@ -1,5 +1,6 @@
 from typing import List
 
+import logging
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
 from .. import models, schemas
@@ -31,7 +32,7 @@ def create_periodic_task(
     try:
         cron_parts = task.cron_expr.split()
         if len(cron_parts) != 5:
-            raise Exception("Invalid cron format")
+            raise Exception("无效的定时任务格式")
 
         scheduler.add_job(
             exec_periodic_task,
@@ -85,10 +86,10 @@ def run_periodic_task_now(
     # 1. 检查任务是否存在且有权操作
     task = db.query(models.PeriodicTask).filter(models.PeriodicTask.id == task_id).first()
     if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
+        raise HTTPException(status_code=404, detail="任务没找到")
 
     if task.owner_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Permission denied")
+        raise HTTPException(status_code=403, detail="无权限")
 
     # 2. 立即触发执行函数
     # 注意：这里我们使用 BackgroundTasks 在响应返回后异步执行，
@@ -122,9 +123,9 @@ def update_periodic_task(
     # 1. 查找并校验权限
     db_task = db.query(models.PeriodicTask).filter(models.PeriodicTask.id == task_id).first()
     if not db_task:
-        raise HTTPException(status_code=404, detail="Task not found")
+        raise HTTPException(status_code=404, detail="任务没找到")
     if db_task.owner_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Permission denied")
+        raise HTTPException(status_code=403, detail="无权限")
 
     # 2. 更新数据库字段
     db_task.name = task_in.name
@@ -142,7 +143,7 @@ def update_periodic_task(
     try:
         cron_parts = task_in.cron_expr.split()
         if len(cron_parts) != 5:
-            raise Exception("Invalid cron format")
+            raise Exception("无效的定时任务格式")
 
         # 无论之前是否存在 Job，都尝试重新添加或更新
         # 如果 Job 已存在，replace_existing=True 会更新它
@@ -167,7 +168,7 @@ def update_periodic_task(
                 scheduler.remove_job(str(db_task.id))
 
     except Exception as e:
-        print(f"Scheduler update failed: {e}")
+        logging.error(f"定时任务更新失败: {e}")
         # 这里可以选择回滚或者仅记录日志
 
     return db_task

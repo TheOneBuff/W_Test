@@ -23,6 +23,7 @@ class LLMConfigBase(BaseModel):
     model_name: str
     base_url: Optional[str] = None
     model_family: Optional[str] = None
+    memo: Optional[str] = None
 
 class LLMConfigUpdate(LLMConfigBase):
     api_key: Optional[str] = None # 前端传来的可能是明文，也可能是掩码

@@ -39,7 +39,14 @@
              <el-option label="qwen3-vl" value="qwen3-vl" />
           </el-select>
         </el-form-item>
-
+        <el-form-item label="备注">
+          <el-input
+            v-model="form.memo"
+            type="textarea"
+            :rows="2"
+            placeholder="例如：这是公司内部部署的 deepseek 模型..."
+          />
+        </el-form-item>
         <el-form-item>
           <el-button type="primary" @click="handleSave" :loading="saving">保存配置</el-button>
           <el-button @click="fetchConfig">重置</el-button>
@@ -60,7 +67,8 @@ const form = reactive({
   model_name: 'gpt-4o',
   api_key_masked: '',
   base_url: '',
-  model_family: ''
+  model_family: '',
+  memo: ''
 
 })
 
@@ -73,6 +81,7 @@ const fetchConfig = async () => {
     form.base_url = data.base_url
     form.api_key_masked = data.api_key_masked
     form.model_family = data.model_family
+    form.memo = data.memo
   } catch (error) {
     console.error(error)
   }
@@ -87,6 +96,7 @@ const handleSave = async () => {
       model_name: form.model_name,
       base_url: form.base_url,
       api_key: form.api_key_masked, // 后端会判断如果包含 **** 就不更新
+      memo: form.memo,
       model_family: form.model_family
     }
 

@@ -1,5 +1,6 @@
 import logging
 import os
+import shutil
 import subprocess
 from datetime import datetime, timedelta
 from celery import Celery
@@ -31,6 +32,31 @@ def run_midscene_task(report_id: int, llm_config: dict):
     os.makedirs(work_dir, exist_ok=True)
 
     try:
+        # 1. 查找该用例上一次成功的报告
+        # 注意：这里需要再次查询 DB，找到同一个 test_case_id 的最近一次 SUCCESS 记录
+        last_success_report = db.query(TestReport) \
+            .filter(TestReport.test_case_id == report.test_case_id) \
+            .filter(TestReport.status == TaskStatus.SUCCESS) \
+            .filter(TestReport.id < report_id) \
+            .order_by(TestReport.id.desc()) \
+            .first()
+
+        if last_success_report:
+            last_run_dir = os.path.join(REPORT_DIR, f"run_{last_success_report.id}")
+            # 假设缓存固定在 midscene_run/cache 目录下
+            last_cache_dir = os.path.join(last_run_dir, "midscene_run", "cache")
+
+            if os.path.exists(last_cache_dir):
+                target_cache_dir = os.path.join(work_dir, "midscene_run", "cache")
+                try:
+                    # 复制整个缓存目录
+                    shutil.copytree(last_cache_dir, target_cache_dir, dirs_exist_ok=True)
+                    # 追加日志以便调试
+                    report.logs = f"系统缓存已从run_{last_success_report.id}恢复\n"
+                    logging.info(f"系统缓存已从run_{last_success_report.id}恢复")
+                except Exception as e:
+                    logging.info(f"系统缓存恢复失败: {e}")
+
         # 2. 判断脚本类型并写入文件
         is_ts = report.test_case.script_type == 'typescript'
         file_ext = "ts" if is_ts else "yaml"
@@ -108,14 +134,15 @@ def run_midscene_task(report_id: int, llm_config: dict):
                 report.report_path = found_html
             else:
                 # 兼容情况：虽然成功了但没找到报告，可能是 Prompt 模式
-                report.logs += "\n\n[System] Task finished but no HTML report found."
+                report.logs += "\n\n系统任务已完成，但未找到HTML报告"
+                logging.info(f"系统任务已完成，但未找到HTML报告")
 
         else:
             report.status = TaskStatus.FAILED
 
     except Exception as e:
         report.status = TaskStatus.FAILED
-        report.logs = f"Internal Error: {str(e)}"
+        report.logs = f"网络错误: {str(e)}"
     finally:
         db.commit()
         db.close()

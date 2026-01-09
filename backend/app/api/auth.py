@@ -21,7 +21,7 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token")
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
+        detail="无法验证凭据",
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
@@ -49,7 +49,7 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = 
     if not user or not verify_password(form_data.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
+            detail="用户名或密码错误",
             headers={"WWW-Authenticate": "Bearer"},
         )
 

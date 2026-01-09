@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from .database import engine, Base
-from .api import auth, user, llm, menus, testcases, projects, environments, periodic
+from .api import auth, user, llm, menus, testcases, projects, environments, periodic, dashboard
 from .tasks import run_midscene_task # 确保 task 被注册
 from .core.scheduler import start_scheduler
 
@@ -15,6 +15,7 @@ app.include_router(testcases.router, prefix="/api/testcases", tags=["testcases"]
 app.include_router(projects.router, prefix="/api/projects", tags=["projects"])
 app.include_router(environments.router, prefix="/api/envs", tags=["envs"])
 app.include_router(periodic.router, prefix="/api/periodic", tags=["periodic"])
+app.include_router(dashboard.router, prefix="/api/dashboard", tags=["dashboard"])
 @app.get("/")
 def root(): return {"status": "ok"}
 

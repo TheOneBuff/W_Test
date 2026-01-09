@@ -1,5 +1,5 @@
 import logging
-
+from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List, Optional
@@ -180,7 +180,8 @@ def run_test_case(
     new_report = models.TestReport(
         test_case_id=case.id,
         status=models.TaskStatus.PENDING,
-        script_content=case.script_content
+        script_content=case.script_content,
+        start_time=datetime.now() + timedelta(hours=8),
     )
     db.add(new_report)
     db.commit()

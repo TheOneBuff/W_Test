@@ -20,7 +20,7 @@ def create_env(env: schemas.EnvCreate, db: Session = Depends(get_db)):
     try:
         json.loads(env.variables)
     except:
-        raise HTTPException(status_code=400, detail="Variables must be valid JSON")
+        raise HTTPException(status_code=400, detail="变量必须是有效的JSON格式")
 
     db_env = models.Environment(**env.dict())
     db.add(db_env)
@@ -33,7 +33,7 @@ def create_env(env: schemas.EnvCreate, db: Session = Depends(get_db)):
 def update_env(env_id: int, env_in: schemas.EnvCreate, db: Session = Depends(get_db)):
     env = db.query(models.Environment).filter(models.Environment.id == env_id).first()
     if not env:
-        raise HTTPException(status_code=404, detail="Not found")
+        raise HTTPException(status_code=404, detail="没找到")
 
     env.name = env_in.name
     env.variables = env_in.variables

@@ -45,11 +45,11 @@ def update_project(
 ):
     project = db.query(models.Project).filter(models.Project.id == project_id).first()
     if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+        raise HTTPException(status_code=404, detail="项目不存在")
 
     # 权限检查
     if current_user.username != "admin" and project.owner_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Permission denied")
+        raise HTTPException(status_code=403, detail="无权限")
 
     project.name = project_in.name
     project.description = project_in.description
@@ -67,10 +67,10 @@ def delete_project(
 ):
     project = db.query(models.Project).filter(models.Project.id == project_id).first()
     if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+        raise HTTPException(status_code=404, detail="项目不存在")
 
     if current_user.username != "admin" and project.owner_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Permission denied")
+        raise HTTPException(status_code=403, detail="无权限")
 
     db.delete(project)
     db.commit()

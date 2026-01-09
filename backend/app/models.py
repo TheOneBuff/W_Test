@@ -86,6 +86,7 @@ class LLMConfig(Base):
     api_key = Column(String(255), nullable=True)
     base_url = Column(String(255), nullable=True)
     model_family = Column(String(50), nullable=True)
+    memo = Column(String(255), nullable=True)
     owner = relationship("User", back_populates="llm_config")
 
 

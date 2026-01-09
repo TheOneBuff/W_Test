@@ -4,7 +4,7 @@
     <el-aside width="220px" class="aside">
       <div class="logo">
         <el-icon class="logo-icon"><Platform /></el-icon>
-        <span>Midscene Pro</span>
+        <span>UI自动化平台</span>
       </div>
 
       <!-- 动态菜单 -->
