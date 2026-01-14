@@ -31,6 +31,8 @@ services:
       dockerfile: docker/Dockerfile.hybrid
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     container_name: midscene_backend
+    environment:
+      - TZ=Asia/Shanghai  # <--- 添加时区设置
     volumes:
       - ./backend:/app
       - ./reports:/app/reports  # 挂载报告目录

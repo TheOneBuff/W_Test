@@ -72,6 +72,28 @@ def delete_project(
     if current_user.username != "admin" and project.owner_id != current_user.id:
         raise HTTPException(status_code=403, detail="无权限")
 
+    # --- [新增] 手动级联删除逻辑 ---
+
+    # 1. 查找该项目下所有的用例 ID
+    # 注意：这里我们只查 ID 列表，减少内存开销
+    case_ids = db.query(models.TestCase.id).filter(models.TestCase.project_id == project_id).all()
+    # case_ids 格式类似 [(1,), (2,)]
+    case_ids = [cid[0] for cid in case_ids]
+
+    if case_ids:
+        # 2. 删除这些用例关联的所有测试报告 (TestReport)
+        # 相当于 DELETE FROM test_reports WHERE test_case_id IN (...)
+        db.query(models.TestReport).filter(models.TestReport.test_case_id.in_(case_ids)).delete(
+            synchronize_session=False)
+
+        # 3. 删除这些用例本身 (TestCase)
+        # 相当于 DELETE FROM test_cases WHERE project_id = ...
+        db.query(models.TestCase).filter(models.TestCase.project_id == project_id).delete(synchronize_session=False)
+
+    # 4. 最后删除项目
     db.delete(project)
+
+    # 提交事务
     db.commit()
+
     return {"status": "success"}

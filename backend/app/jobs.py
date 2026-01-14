@@ -2,7 +2,9 @@ import json
 from datetime import datetime
 from sqlalchemy.orm import Session
 from .database import SessionLocal
-from .models import TestCase, Project, TestReport, TaskStatus, User, Environment, PeriodicTask, TaskExecutionLog
+# 引入 LLMConfig
+from .models import TestCase, TestReport, TaskStatus, User, Environment, PeriodicTask, TaskExecutionLog, \
+    LLMConfig
 from .tasks import run_midscene_task
 
 
@@ -21,7 +23,7 @@ def exec_periodic_task(task_id: int):
     )
     db.add(log_entry)
     db.commit()
-    db.refresh(log_entry)  # 获取 ID 以便后续更新
+    db.refresh(log_entry)
 
     generated_report_ids = []
 
@@ -29,7 +31,6 @@ def exec_periodic_task(task_id: int):
         # 2. 获取任务配置
         pt_task = db.query(PeriodicTask).filter(PeriodicTask.id == task_id).first()
 
-        # 检查任务有效性
         if not pt_task:
             raise Exception("Task not found in DB")
         if not pt_task.is_enabled:
@@ -50,16 +51,27 @@ def exec_periodic_task(task_id: int):
         if not target_cases:
             raise Exception("No valid test cases found to run")
 
-        # 4. 准备环境参数
+        # 4. 准备环境参数 (修正：查找 Owner 的激活配置)
+        # ----------------------------------------------------
         owner = db.query(User).filter(User.id == pt_task.owner_id).first()
-        if not owner or not owner.llm_config or not owner.llm_config.api_key:
-            raise Exception("Task owner has no valid LLM/API Key config")
+        if not owner:
+            raise Exception("Task owner not found")
+
+        # 查找该用户激活的 LLM 配置
+        llm_config = db.query(LLMConfig).filter(
+            LLMConfig.user_id == owner.id,
+            LLMConfig.is_active == True
+        ).first()
+
+        if not llm_config or not llm_config.api_key:
+            raise Exception(f"Task owner ({owner.username}) has no active LLM config")
+        # ----------------------------------------------------
 
         llm_env_vars = {
-            "api_key": owner.llm_config.api_key,
-            "model_name": owner.llm_config.model_name or "gpt-4o",
-            "base_url": owner.llm_config.base_url,
-            "model_family": owner.llm_config.model_family,
+            "api_key": llm_config.api_key,
+            "model_name": llm_config.model_name or "gpt-4o",
+            "base_url": llm_config.base_url,
+            "model_family": llm_config.model_family,
             "custom_env": {}
         }
 
@@ -78,10 +90,10 @@ def exec_periodic_task(task_id: int):
         for case in target_cases:
             new_report = TestReport(
                 test_case_id=case.id,
-                status=TaskStatus.PENDING,
+                status=TaskStatus.PENDING,  # 兼容
                 script_content=case.script_content,
-                # 可选：记录是由定时任务触发的
-                logs=f"[System] Triggered by Periodic Task: {pt_task.name} (ID: {task_id})"
+                logs=f"[System] Triggered by Periodic Task: {pt_task.name} (ID: {task_id})",
+                start_time=datetime.now()
             )
             db.add(new_report)
             db.commit()

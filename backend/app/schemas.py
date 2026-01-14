@@ -18,18 +18,28 @@ class UserOut(UserBase):
     class Config:
         from_attributes = True # 兼容 ORM 对象
 
+
 class LLMConfigBase(BaseModel):
+    name: str  # 必填
     provider: str
     model_name: str
     base_url: Optional[str] = None
     model_family: Optional[str] = None
     memo: Optional[str] = None
+    is_active: bool = False
 
-class LLMConfigUpdate(LLMConfigBase):
-    api_key: Optional[str] = None # 前端传来的可能是明文，也可能是掩码
+
+class LLMConfigCreate(LLMConfigBase):
+    api_key: Optional[str] = None
+
+
+class LLMConfigUpdate(LLMConfigCreate):
+    pass
+
 
 class LLMConfigOut(LLMConfigBase):
-    api_key_masked: Optional[str] = None # 返回给前端显示的
+    id: int
+    api_key_masked: Optional[str] = None
 
     class Config:
         from_attributes = True

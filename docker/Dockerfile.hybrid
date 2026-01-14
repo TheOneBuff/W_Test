@@ -1,6 +1,15 @@
 # 使用 Playwright 官方镜像 (包含 Node.js 18+, Browsers, System Deps)
 FROM mcr.microsoft.com/playwright:v1.49.0-jammy
 
+ENV TZ=Asia/Shanghai
+# 安装时区数据包并设置时区
+RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list \
+    && sed -i 's/security.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list \
+    && apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends tzdata \
+    && ln -fs /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
+    && echo "Asia/Shanghai" > /etc/timezone
+
 # 1. 安装 Python 3.10 和基础工具
 RUN apt-get update && apt-get install -y \
     python3.10 \

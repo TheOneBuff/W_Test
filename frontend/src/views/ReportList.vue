@@ -10,38 +10,42 @@
     <el-card shadow="never">
       <el-table :data="list" v-loading="loading" stripe>
         <el-table-column prop="id" label="ID" width="80" />
-        <el-table-column prop="test_case_id" label="用例ID" width="100">
+        <el-table-column prop="test_case_id" label="用例" min-width="150">
            <template #default="{ row }">
-             <el-link type="primary" @click="$router.push(`/testcases/edit/${row.test_case_id}`)">
-               #{{ row.test_case_id }}
-             </el-link>
+             <div>
+               <el-link type="primary" @click="$router.push(`/testcases/edit/${row.test_case_id}`)">
+                 #{{ row.test_case_id }}
+               </el-link>
+               <span v-if="row.test_case_name" class="ml-2 text-gray-500 text-sm">
+                 {{ row.test_case_name }}
+               </span>
+             </div>
            </template>
         </el-table-column>
-        <el-table-column prop="status" label="状态" width="120">
+        <el-table-column prop="status" label="状态" width="100">
           <template #default="{ row }">
-            <el-tag :type="statusMap[row.status]">{{ row.status.toUpperCase() }}</el-tag>
+            <el-tag :type="statusMap[row.status]">{{ row.status ? row.status.toUpperCase() : 'UNKNOWN' }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="start_time" label="开始时间">
+        <el-table-column prop="start_time" label="开始时间" width="160">
           <template #default="{ row }">
             {{ formatDate(row.start_time) }}
           </template>
         </el-table-column>
-        <el-table-column prop="end_time" label="耗时">
+        <el-table-column prop="end_time" label="耗时" width="100">
           <template #default="{ row }">
             {{ formatDuration(row.start_time, row.end_time) }}
           </template>
         </el-table-column>
 
-        <el-table-column label="操作" width="200" fixed="right">
+        <el-table-column label="操作" width="160" fixed="right">
           <template #default="{ row }">
-            <el-button type="primary" link @click="viewReport(row.id)">查看详情</el-button>
+            <el-button type="primary" link @click="viewReport(row.id)">查看</el-button>
             <el-button type="warning" link @click="handleRetry(row)" :loading="row._loading">重跑</el-button>
           </template>
         </el-table-column>
       </el-table>
 
-      <!-- 分页 -->
       <el-pagination
         class="mt-4"
         background
@@ -82,9 +86,20 @@ const fetchList = async () => {
     const res = await axios.get('/testcases/reports/', {
       params: { skip: (page.value - 1) * pageSize, limit: pageSize }
     })
-    list.value = res.data
-    // 假设后端没有返回 total，这里暂时 mock 或者需要后端支持 count 接口
-    total.value = 100
+
+    // [修复] 适配后端新的返回结构 { total: ..., items: [...] }
+    if (res.data && Array.isArray(res.data.items)) {
+      list.value = res.data.items
+      total.value = res.data.total
+    } else {
+      // 兼容旧格式（以防万一）
+      list.value = Array.isArray(res.data) ? res.data : []
+      total.value = list.value.length
+    }
+
+  } catch (error) {
+    console.error(error)
+    ElMessage.error('获取报告列表失败')
   } finally {
     loading.value = false
   }
@@ -104,8 +119,10 @@ const handleRetry = async (row: any) => {
   try {
     const res = await axios.post(`/testcases/reports/${row.id}/retry`)
     ElMessage.success('任务已提交')
-    // 跳转到新报告
-    router.push(`/report-view/${res.data.id}`)
+    // 可选：直接跳转
+    // router.push(`/report-view/${res.data.id}`)
+    // 或者刷新列表
+    fetchList()
   } catch (e) {
     ElMessage.error('重跑失败')
   } finally {
@@ -113,9 +130,12 @@ const handleRetry = async (row: any) => {
   }
 }
 
-const formatDate = (str: string) => dayjs(str).format('MM-DD HH:mm:ss')
+const formatDate = (str: string) => {
+  if (!str) return '-'
+  return dayjs(str).format('MM-DD HH:mm:ss')
+}
 const formatDuration = (start: string, end: string) => {
-  if (!end) return '-'
+  if (!end || !start) return '-'
   const diff = dayjs(end).diff(dayjs(start), 'second')
   return `${diff}s`
 }
@@ -127,4 +147,7 @@ onMounted(fetchList)
 .report-list { padding: 20px; }
 .header-actions { display: flex; justify-content: space-between; margin-bottom: 20px; align-items: center; }
 .mt-4 { margin-top: 20px; text-align: right; }
+.ml-2 { margin-left: 8px; }
+.text-gray-500 { color: #6b7280; }
+.text-sm { font-size: 0.875rem; }
 </style>
