@@ -1,25 +1,38 @@
 <template>
-  <div class="env-manage">
-    <div class="header-actions">
-      <el-button type="primary" @click="openDialog()">
-        <el-icon class="mr-1"><Plus /></el-icon> 新建环境
-      </el-button>
+  <div class="page-container">
+    <div class="toolbar-card">
+      <div class="title">环境配置列表</div>
+      <el-button type="primary" :icon="Plus" @click="openDialog()">新建环境</el-button>
     </div>
 
-    <el-card shadow="never">
-      <el-table :data="list" stripe>
-        <el-table-column prop="id" label="ID" width="80" />
-        <el-table-column prop="name" label="环境名称" width="200" />
-        <el-table-column prop="description" label="描述" />
-        <el-table-column label="变量预览" show-overflow-tooltip>
+    <el-card shadow="never" class="table-card" :body-style="{ padding: '0' }">
+      <el-table :data="list" stripe style="width: 100%">
+        <el-table-column prop="id" label="ID" width="80" align="center" class-name="text-gray" />
+
+        <el-table-column prop="name" label="环境名称" width="200">
           <template #default="{ row }">
-            {{ row.variables }}
+            <span class="font-medium">{{ row.name }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="150">
+
+        <el-table-column prop="description" label="描述" min-width="200" show-overflow-tooltip />
+
+        <el-table-column label="变量配置" width="120">
+          <template #default="{ row }">
+            <el-popover placement="top" width="300" trigger="hover">
+              <template #reference>
+                <el-tag type="info" size="small" class="cursor-pointer">查看 JSON</el-tag>
+              </template>
+              <pre class="json-preview">{{ formatJson(row.variables) }}</pre>
+            </el-popover>
+          </template>
+        </el-table-column>
+
+        <el-table-column label="操作" width="180" fixed="right" align="right">
           <template #default="{ row }">
             <el-button type="primary" link @click="openDialog(row)">编辑</el-button>
-            <el-popconfirm title="确定删除?" @confirm="handleDelete(row.id)">
+            <el-divider direction="vertical" />
+            <el-popconfirm title="确定删除该环境?" @confirm="handleDelete(row.id)">
               <template #reference>
                 <el-button type="danger" link>删除</el-button>
               </template>
@@ -29,27 +42,30 @@
       </el-table>
     </el-card>
 
-    <el-dialog v-model="dialogVisible" :title="form.id ? '编辑环境' : '新建环境'" width="600px">
-      <el-form :model="form" label-width="80px">
-        <el-form-item label="名称" required>
-          <el-input v-model="form.name" placeholder="例如：Test Env" />
+    <el-dialog v-model="dialogVisible" :title="form.id ? '编辑环境' : '新建环境'" width="550px" destroy-on-close>
+      <el-form :model="form" label-width="80px" label-position="top">
+        <el-form-item label="环境名称" required>
+          <el-input v-model="form.name" placeholder="例如：Staging / Production" />
         </el-form-item>
-        <el-form-item label="描述">
-          <el-input v-model="form.description" />
+        <el-form-item label="描述信息">
+          <el-input v-model="form.description" placeholder="该环境的用途说明..." />
         </el-form-item>
-        <el-form-item label="变量配置">
-          <div class="json-editor-tip">请输入 JSON 格式，例如: {"BASE_URL": "http://..."}</div>
-          <el-input
-            v-model="form.variables"
-            type="textarea"
-            :rows="10"
-            placeholder='{ "KEY": "VALUE" }'
-          />
+        <el-form-item label="环境变量 (JSON)">
+          <div class="code-editor-wrapper">
+            <el-input
+              v-model="form.variables"
+              type="textarea"
+              :rows="8"
+              placeholder='{ "BASE_URL": "https://..." }'
+              class="code-input"
+            />
+          </div>
+          <div class="form-tip">请输入合法的 JSON 格式，例如: {"KEY": "VALUE"}</div>
         </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleSubmit">确定</el-button>
+        <el-button type="primary" @click="handleSubmit">保存</el-button>
       </template>
     </el-dialog>
   </div>
@@ -84,10 +100,9 @@ const openDialog = (row?: any) => {
 
 const handleSubmit = async () => {
   try {
-    // 简单校验 JSON
     JSON.parse(form.variables)
   } catch {
-    return ElMessage.error('变量格式必须是合法的 JSON')
+    return ElMessage.error('变量格式错误：必须是合法的 JSON')
   }
 
   try {
@@ -96,20 +111,40 @@ const handleSubmit = async () => {
     ElMessage.success('保存成功')
     dialogVisible.value = false
     fetchList()
-  } catch(e) {
-    ElMessage.error('保存失败')
-  }
+  } catch(e) { ElMessage.error('保存失败') }
 }
 
 const handleDelete = async (id: number) => {
-  await axios.delete(`/envs/${id}`)
-  fetchList()
+  try {
+    await axios.delete(`/envs/${id}`)
+    ElMessage.success('已删除')
+    fetchList()
+  } catch (e) { ElMessage.error('删除失败') }
+}
+
+const formatJson = (str: string) => {
+  try { return JSON.stringify(JSON.parse(str), null, 2) } catch { return str }
 }
 
 onMounted(fetchList)
 </script>
 
 <style scoped>
-.env-manage { padding: 20px; }
-.json-editor-tip { font-size: 12px; color: #999; margin-bottom: 5px; }
+.page-container { max-width: 1200px; margin: 0 auto; }
+.toolbar-card {
+  background: #fff; padding: 16px 24px; border-radius: 8px; margin-bottom: 16px;
+  display: flex; justify-content: space-between; align-items: center;
+  box-shadow: 0 1px 2px 0 rgba(0,0,0,0.05);
+}
+.toolbar-card .title { font-size: 16px; font-weight: 600; color: #1f2937; }
+
+.table-card { border: none; border-radius: 8px; box-shadow: 0 1px 3px 0 rgba(0,0,0,0.1); overflow: hidden; }
+.text-gray { color: #9ca3af; font-family: monospace; }
+.font-medium { font-weight: 500; }
+.cursor-pointer { cursor: pointer; }
+
+.json-preview { font-family: monospace; font-size: 12px; margin: 0; white-space: pre-wrap; color: #4b5563; }
+.form-tip { font-size: 12px; color: #9ca3af; margin-top: 4px; }
+.code-editor-wrapper { border: 1px solid #dcdfe6; border-radius: 4px; overflow: hidden; }
+:deep(.el-textarea__inner) { box-shadow: none; border: none; background: #f9fafb; font-family: monospace; }
 </style>
