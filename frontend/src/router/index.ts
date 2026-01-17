@@ -4,6 +4,8 @@ import HomeView from '../views/HomeView.vue' // 布局组件
 import TestCaseList from '../views/TestCaseList.vue'
 import TestCaseEdit from '../views/TestCaseEdit.vue'
 import ReportDetail from '../views/ReportDetail.vue'
+import KnowledgeBase from '../views/KnowledgeBase.vue'
+import CaseGenerator from '../views/CaseGenerator.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -58,7 +60,26 @@ const router = createRouter({
         {
           path: 'periodic',
           name: 'ScheduledTasks',
-          component: () => import('../views/ScheduledTasks.vue') }
+          component: () => import('../views/ScheduledTasks.vue')
+        },
+        {
+          path: '/knowledge',
+          name: 'KnowledgeBase',
+          component: KnowledgeBase,
+          meta: { title: '知识库管理'}
+        },
+        {
+          path: '/generator',
+          name: 'CaseGenerator',
+          component: CaseGenerator,
+          meta: { title: '用例生成' }
+        },
+          {
+          path: 'testcase/result/:id',
+          name: 'TestCaseResult',
+          component: () => import('../views/TestCaseResult.vue'),
+          meta: { title: '生成结果详情' }
+        },
 
       ]
     },

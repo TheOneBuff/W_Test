@@ -63,7 +63,6 @@ import axios from '@/utils/request'
 import * as echarts from 'echarts'
 import { Document, Monitor, PieChart, Warning, TrendCharts } from '@element-plus/icons-vue'
 
-// 定义响应式数据，修复 "stats does not exist" 报错
 const stats = reactive({
   total_cases: 0,
   total_envs: 0,
@@ -77,29 +76,34 @@ let myChart: echarts.ECharts | null = null
 
 // 初始化数据
 const initData = async () => {
+  // [修复] 分开请求，避免一个 404 导致所有数据丢失
+  // 1. 获取用例总数
   try {
-    // 并行请求基础数据
-    const [caseRes, envRes, reportRes] = await Promise.all([
-      axios.get('/testcases/'),
-      axios.get('/environments/'), // 确保后端有这个接口，或者用 /envs/
-      axios.get('/testcases/reports/', { params: { limit: 50 } }) // 获取最近50条报告算通过率
-    ])
+    const res = await axios.get('/testcases/')
+    stats.total_cases = res.data.length
+  } catch (e) { console.error('Failed to fetch cases', e) }
 
-    stats.total_cases = caseRes.data.length
-    stats.total_envs = envRes.data.length
+  // 2. 获取环境总数 [修复接口地址 /environments/ -> /envs/]
+  try {
+    const res = await axios.get('/envs/')
+    stats.total_envs = res.data.length
+  } catch (e) { console.error('Failed to fetch envs', e) }
 
-    // 简单计算通过率
-    const reports = reportRes.data.items || []
+  // 3. 获取近期报告计算通过率
+  try {
+    const res = await axios.get('/testcases/reports/', { params: { limit: 50 } })
+    // 注意：接口返回结构可能是 { items: [], total: ... }
+    const reports = Array.isArray(res.data) ? res.data : (res.data.items || [])
+
     if (reports.length > 0) {
       const passed = reports.filter((r: any) => r.status === 'success').length
       stats.pass_rate = Math.round((passed / reports.length) * 100) + '%'
       stats.failed_count = reports.filter((r: any) => r.status === 'failed').length
     }
+  } catch (e) { console.error('Failed to fetch reports', e) }
 
-    await fetchChartData()
-  } catch (e) {
-    console.error('Dashboard init failed', e)
-  }
+  // 4. 加载图表
+  await fetchChartData()
 }
 
 const fetchChartData = async () => {
@@ -137,7 +141,7 @@ const fetchChartData = async () => {
     }
     myChart?.setOption(option)
   } catch (e) {
-    console.error(e)
+    console.error('Chart Error', e)
   } finally {
     myChart?.hideLoading()
   }

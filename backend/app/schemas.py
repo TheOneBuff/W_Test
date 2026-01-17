@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Any
 from datetime import datetime
 from enum import Enum
 
@@ -27,11 +27,23 @@ class LLMConfigBase(BaseModel):
     model_family: Optional[str] = None
     memo: Optional[str] = None
     is_active: bool = False
+    model_type: Optional[str] = "text"
+    use_for: Optional[str] = "generation"
 
 
 class LLMConfigCreate(LLMConfigBase):
     api_key: Optional[str] = None
 
+# --- [新增] 测试用例记录 ---
+class TestCaseRecord(BaseModel):
+    id: int
+    requirement: str
+    image_path: Optional[str]
+    status: str
+    result_json: Optional[List[Any]]
+    create_time: datetime
+    class Config:
+        from_attributes = True
 
 class LLMConfigUpdate(LLMConfigCreate):
     pass

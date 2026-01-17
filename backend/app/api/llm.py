@@ -106,20 +106,51 @@ def delete_config(
 
 
 # 5. 激活配置 (快捷接口)
+# midwhp/backend/app/api/llm_config.py
+
 @router.post("/{config_id}/activate")
 def activate_config(
         config_id: int,
         db: Session = Depends(get_db),
         current_user: models.User = Depends(get_current_user)
 ):
-    # 1. 停用该用户所有配置
-    db.query(models.LLMConfig).filter(models.LLMConfig.user_id == current_user.id).update({"is_active": False})
+    # 1. 找到要激活的目标配置
+    target_config = db.query(models.LLMConfig).filter(
+        models.LLMConfig.id == config_id,
+        models.LLMConfig.user_id == current_user.id
+    ).first()
 
-    # 2. 激活指定配置
-    config = db.query(models.LLMConfig).filter(models.LLMConfig.id == config_id).first()
-    if config and config.user_id == current_user.id:
-        config.is_active = True
-        db.commit()
-        return {"status": "ok"}
+    if not target_config:
+        raise HTTPException(status_code=404, detail="Config not found")
 
-    raise HTTPException(status_code=404, detail="Config not found")
+    # 2. [关键修改] 先把“同类型”的其他配置设为 False
+    # 比如：如果我要激活一个 Embedding 模型，我只把其他的 Embedding 模型关掉
+    # 不会影响已经激活的 Generation 模型
+    db.query(models.LLMConfig).filter(
+        models.LLMConfig.user_id == current_user.id,
+        models.LLMConfig.use_for == target_config.use_for,  # <--- 限定用途
+        models.LLMConfig.is_active == True
+    ).update({"is_active": False})
+
+    # 3. 激活当前目标
+    target_config.is_active = True
+    db.commit()
+
+    return {"status": "success", "msg": f"Activated {target_config.use_for} model"}
+
+
+# [新增] 获取当前激活的配置
+@router.get("/active")
+def get_active_config(
+        db: Session = Depends(get_db),
+        current_user: models.User = Depends(get_current_user)
+):
+    config = db.query(models.LLMConfig).filter(
+        models.LLMConfig.user_id == current_user.id,
+        models.LLMConfig.is_active == True
+    ).first()
+
+    if not config:
+        return {}  # 或者返回 None，前端做判空处理
+
+    return config

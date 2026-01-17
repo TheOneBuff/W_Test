@@ -124,31 +124,27 @@ const route = useRoute()
 const userStore = useUserStore()
 const envStore = useEnvStore()
 
-// --- 1. 环境列表逻辑 ---
+// --- 环境列表逻辑 ---
 const envList = ref<any[]>([])
 const fetchEnvs = async () => {
   try {
-    const res = await axios.get('/envs/') // 确保后端接口地址正确，例如 /environments/ 或 /envs/
+    const res = await axios.get('/envs/')
     envList.value = res.data
   } catch(e) { console.error(e) }
 }
 
-// --- 2. 菜单逻辑 ---
+// --- 菜单逻辑 ---
 const menuList = ref<any[]>([])
-// 如果后端没返回 Icon 字符串，可以前端做个简单的映射
 const fetchUserMenus = async () => {
   try {
     const res = await axios.get('/menus/')
-    // 简单处理：如果没有 icon，根据 title 或 path 赋一个默认图标，或者后端返回的就是 Element Plus 图标名
     menuList.value = res.data.map((m: any) => ({
       ...m,
-      // 如果后端没存 icon，这里可以 mock 一个
       icon: m.icon || 'Menu',
       children: m.children?.map((c: any) => ({ ...c, icon: c.icon || 'Document' }))
     }))
   } catch (e) {
-    console.error(e)
-    // Fallback: 如果后端没通，可以写死一些菜单防止空白
+    // Fallback 如果接口失败
     menuList.value = [
       { id: 1, title: '仪表盘', path: '/dashboard', icon: 'Odometer' },
       { id: 2, title: '项目管理', path: '/projects', icon: 'Folder' },
@@ -158,10 +154,9 @@ const fetchUserMenus = async () => {
   }
 }
 
-// --- 3. UI 逻辑 ---
+// --- UI 逻辑 ---
 const userInitial = computed(() => userStore.username ? userStore.username.charAt(0).toUpperCase() : 'U')
 
-// 页面标题映射
 const currentPageTitle = computed(() => {
   const map: Record<string, string> = {
     '/dashboard': '仪表盘',
@@ -174,9 +169,7 @@ const currentPageTitle = computed(() => {
     '/users': '用户管理',
     '/menus': '菜单管理'
   }
-  // 简单前缀匹配
   const key = Object.keys(map).find(k => route.path.startsWith(k))
-  // 特殊处理首页
   if (route.path === '/') return '仪表盘'
   return key ? map[key] : 'MidScene'
 })
@@ -192,7 +185,7 @@ const handleLogout = () => {
   ElMessage.success('已退出登录')
 }
 
-// --- 4. 修改密码 ---
+// --- 修改密码 ---
 const pwdDialogVisible = ref(false)
 const pwdLoading = ref(false)
 const pwdForm = reactive({ old_password: '', new_password: '' })
@@ -241,8 +234,7 @@ onMounted(() => {
 .logo-img { width: 28px; height: 28px; margin-right: 12px; }
 .logo-text { font-size: 18px; font-weight: 600; color: #fff; letter-spacing: 0.5px; }
 
-.el-menu-vertical { border-right: none; }
-/* 菜单选中高亮优化 */
+.el-menu-vertical { border-right: none; flex: 1; }
 :deep(.el-menu-item.is-active) {
   background-color: #374151 !important;
   border-left: 4px solid #6366f1;
@@ -282,6 +274,7 @@ onMounted(() => {
   background-color: #f3f4f6;
   padding: 24px;
   overflow-y: auto;
+  overflow-x: hidden; /* 修复滚动条问题的关键 */
 }
 
 /* 页面切换动画 */

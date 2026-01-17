@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, Enum as SqEnum
+from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, Enum as SqEnum, JSON
 from sqlalchemy.orm import relationship, backref
 from datetime import datetime, timedelta
 import enum
@@ -36,7 +36,7 @@ class Project(Base):
 
     owner_id = Column(Integer, index=True)
 
-    create_time = Column(DateTime, default=datetime.now() + timedelta(hours=8))
+    create_time = Column(DateTime, default=datetime.now())
 
     # Project -> User (Many-to-One)
     owner = relationship(
@@ -75,7 +75,7 @@ class TestCase(Base):
     script_content = Column(Text, nullable=False)
     script_type = Column(String(20), default="yaml")
 
-    create_time = Column(DateTime, default=datetime.now() + timedelta(hours=8))
+    create_time = Column(DateTime, default=datetime.now())
 
     # TestCase -> TestReport (One-to-Many)
     reports = relationship(
@@ -94,7 +94,7 @@ class TestReport(Base):
     test_case_id = Column(Integer, index=True)
 
     status = Column(SqEnum(TaskStatus), default=TaskStatus.PENDING)
-    start_time = Column(DateTime, default=datetime.now() + timedelta(hours=8))
+    start_time = Column(DateTime, default=datetime.now())
     end_time = Column(DateTime, nullable=True)
     report_path = Column(String(255), nullable=True)
     logs = Column(Text, nullable=True)
@@ -123,6 +123,10 @@ class LLMConfig(Base):
     model_name = Column(String(100), default="gpt-4o")
     api_key = Column(String(255), nullable=True)
     base_url = Column(String(255), nullable=True)
+    use_for = Column(String(20), default="generation", nullable=False)
+    # [新增] 模型类型：text (纯文本), multimodal (多模态/视觉)
+    model_type = Column(String(20), default="text", nullable=False)
+
     model_family = Column(String(50), nullable=True)
     memo = Column(String(255), nullable=True)
 
@@ -176,7 +180,7 @@ class Environment(Base):
 
     variables = Column(Text, nullable=False, default="{}")
 
-    create_time = Column(DateTime, default=datetime.now() + timedelta(hours=8))
+    create_time = Column(DateTime, default=datetime.now())
 
 
 class TaskExecutionLog(Base):
@@ -186,7 +190,7 @@ class TaskExecutionLog(Base):
 
     periodic_task_id = Column(Integer, index=True)
 
-    trigger_time = Column(DateTime, default=datetime.now() + timedelta(hours=8))
+    trigger_time = Column(DateTime, default=datetime.now())
     status = Column(String(20))
     report_ids = Column(Text, nullable=True)
     error_msg = Column(Text, nullable=True)
@@ -216,7 +220,7 @@ class PeriodicTask(Base):
 
     is_enabled = Column(Boolean, default=True)
 
-    create_time = Column(DateTime, default=datetime.now() + timedelta(hours=8))
+    create_time = Column(DateTime, default=datetime.now())
     last_run_time = Column(DateTime, nullable=True)
 
     owner_id = Column(Integer, index=True)
@@ -227,3 +231,41 @@ class PeriodicTask(Base):
         primaryjoin="User.id == PeriodicTask.owner_id",
         foreign_keys=[owner_id]
     )
+
+
+class KnowledgeDocument(Base):
+    __tablename__ = "knowledge_documents"
+
+    id = Column(Integer, primary_key=True, index=True)
+    filename = Column(String(255), nullable=False)
+    file_path = Column(String(255), nullable=False)  # 本地存储路径
+    doc_type = Column(String(50))  # pdf, docx, txt
+
+    # 状态: pending(解析中), success(已完成), failed(失败)
+    status = Column(String(20), default="pending")
+    error_msg = Column(Text, nullable=True)
+
+    chunk_count = Column(Integer, default=0)  # 切分片段数
+    create_time = Column(DateTime, default=datetime.now)
+
+
+class TestCaseRecord(Base):
+    __tablename__ = "test_case_records"
+
+    id = Column(Integer, primary_key=True, index=True)
+    # [修改] 纯 Integer 字段，无 ForeignKey 约束，但加 index 方便查询
+    user_id = Column(Integer, index=True, nullable=False)
+
+    # 输入信息
+    requirement = Column(Text, nullable=False)  # 需求描述
+    image_path = Column(String(500), nullable=True)  # 图片存储路径
+
+    # 输出结果 (存 JSON 列表)
+    result_json = Column(JSON, nullable=True)
+
+    # 状态: pending(排队), processing(生成中), success(成功), failed(失败)
+    status = Column(String(50), default="pending")
+    error_msg = Column(Text, nullable=True)
+
+    create_time = Column(DateTime, default=datetime.now)
+    update_time = Column(DateTime, default=datetime.now, onupdate=datetime.now)

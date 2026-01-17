@@ -16,15 +16,17 @@ def get_case_trend(days: int = 7, db: Session = Depends(get_db)):
     date_list = [(start_date + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(days + 1)]
 
     # 2. 查询数据: 按项目、日期分组统计
-    # SELECT project_id, DATE(create_time), COUNT(*) FROM test_cases GROUP BY ...
+    # [修复] 使用 func.date() 代替 func.date_format() 以兼容 SQLite 和 MySQL
+    date_col = func.date(models.TestCase.create_time)
+
     results = db.query(
         models.TestCase.project_id,
-        func.date_format(models.TestCase.create_time, '%Y-%m-%d').label('date'),
+        date_col.label('date'),
         func.count(models.TestCase.id)
     ).filter(
         models.TestCase.create_time >= start_date
     ).group_by(
-        models.TestCase.project_id, 'date'
+        models.TestCase.project_id, date_col
     ).all()
 
     # 3. 数据处理: 转为 ECharts 格式
@@ -40,16 +42,14 @@ def get_case_trend(days: int = 7, db: Session = Depends(get_db)):
         data = []
         for d in date_list:
             # 查找该项目在该日的数量，没找到填 0
-            count = next((r[2] for r in results if r[0] == pid and r[1] == d), 0)
+            # 注意：SQLite 返回的 date 可能是字符串，MySQL 可能是 date 对象，统一转字符串比较
+            count = next((r[2] for r in results if r[0] == pid and str(r[1]) == d), 0)
             data.append(count)
 
         series.append({
             "name": pname,
             "data": data
         })
-
-    # 处理未分配项目的用例 (Optional)
-    # ...
 
     return {
         "dates": date_list,

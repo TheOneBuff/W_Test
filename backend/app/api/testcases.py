@@ -7,7 +7,7 @@ from .. import models, schemas
 from ..database import get_db
 from .auth import get_current_user
 from ..tasks import run_midscene_task
-from sqlalchemy import desc
+from sqlalchemy import desc, true
 
 router = APIRouter()
 
@@ -175,14 +175,15 @@ def run_test_case(
 
     check_case_permission(case, current_user)
 
-    # 1. 查找当前用户激活的配置
     llm_config = db.query(models.LLMConfig).filter(
         models.LLMConfig.user_id == current_user.id,
-        models.LLMConfig.is_active == True
+        models.LLMConfig.is_active == True,
+        models.LLMConfig.use_for == "generation"  # <--- 专找生成模型
     ).first()
 
-    if not llm_config or not llm_config.api_key:
-        raise HTTPException(status_code=400, detail="请先在'大模型配置'中激活一个有效的配置")
+    if not llm_config:
+        raise HTTPException(status_code=400, detail="请先激活一个'生成/测试用'的大模型")
+
 
     # 获取环境变量
     env_vars = {}
@@ -194,7 +195,8 @@ def run_test_case(
                 env_vars = json.loads(env_obj.variables)
             except:
                 pass
-
+    print(1111111)
+    logging.info("1111111")
     # 2. 准备配置字典
     llm_env_vars = {
         "api_key": llm_config.api_key,

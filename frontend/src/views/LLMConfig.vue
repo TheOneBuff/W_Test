@@ -86,6 +86,35 @@
         <el-form-item label="Model Family">
           <el-input v-model="form.model_family" placeholder="可选，例如: qwen" />
         </el-form-item>
+        <el-form-item label="模型用途" required>
+          <el-radio-group v-model="form.use_for" @change="handleUseForChange">
+            <el-radio-button label="generation">生成/测试 (Chat)</el-radio-button>
+            <el-radio-button label="embedding">向量化 (Embedding)</el-radio-button>
+          </el-radio-group>
+          <div class="form-tip" v-if="form.use_for === 'generation'">
+            用于：生成测试用例、执行UI自动化、对话。<br/>推荐模型：gpt-4o, qwen2.5, qwen-vl
+          </div>
+          <div class="form-tip" v-if="form.use_for === 'embedding'">
+            用于：知识库文档解析、RAG 检索。<br/>推荐模型：text-embedding-3, nomic-embed-text
+          </div>
+        </el-form-item>
+
+        <el-form-item label="视觉能力" v-if="form.use_for === 'generation'">
+          <el-switch
+            v-model="form.model_type"
+            active-value="multimodal"
+            inactive-value="text"
+            active-text="支持识图 (Multimodal)"
+            inactive-text="纯文本"
+          />
+        </el-form-item>
+        <el-form-item label="模型类型" prop="model_type">
+          <el-select v-model="form.model_type" placeholder="请选择模型能力类型">
+            <el-option label="纯文本 (Text Only)" value="text" />
+            <el-option label="多模态 (Multimodal / Vision)" value="multimodal" />
+          </el-select>
+          <div class="form-tip">选“多模态”时，用例生成功能将支持上传图片。请确保模型本身支持视觉能力（如 gpt-4o, qwen-vl）。</div>
+        </el-form-item>
         <el-form-item label="备注">
           <el-input v-model="form.memo" type="textarea" :rows="2" />
         </el-form-item>
@@ -106,44 +135,99 @@ import { Plus, Check, Edit, Delete } from '@element-plus/icons-vue'
 
 const list = ref<any[]>([])
 const dialogVisible = ref(false)
-const form = reactive({
-  id: null, name: '', provider: 'openai', model_name: 'gpt-4o',
-  api_key_masked: '', base_url: '', model_family: '', memo: '', is_active: false
-})
+
+// 定义表单默认结构
+const defaultForm = {
+  id: null,
+  name: '',
+  provider: 'openai',
+  model_name: 'gpt-4o',
+  api_key_masked: '',
+  base_url: '',
+  model_family: '',
+  memo: '',
+  is_active: false,
+  model_type: 'text', // [修改] 默认为纯文本
+  use_for: 'generation'
+}
+// 切换用途时重置一些默认值
+const handleUseForChange = (val: string) => {
+  if (val === 'embedding') {
+    form.model_type = 'text' // 向量模型一般没有多模态概念
+    // 如果是本地，可以自动填默认名
+    if (form.provider === 'custom') form.model_name = 'nomic-embed-text'
+  }
+}
+const form = reactive({ ...defaultForm })
 
 const fetchList = async () => {
-  const res = await axios.get('/llm/')
-  list.value = res.data
+  try {
+    const res = await axios.get('/llm/')
+    list.value = res.data
+  } catch (e) {
+    console.error(e)
+  }
 }
 
 const openDialog = (row?: any) => {
-  if (row) Object.assign(form, row)
-  else {
-    Object.assign(form, { id: null, name: 'New Config', provider: 'openai', model_name: 'gpt-4o', api_key_masked: '', base_url: '', memo: '' })
+  if (row) {
+    // [修改] 编辑模式：将 row 的数据覆盖到 form
+    // 确保 api_key_masked 也能回显（通常后端返回的是掩码后的key或空，用户需重新输入）
+    Object.assign(form, row)
+    // 防止后端旧数据没有 model_type 导致前端显示为空
+    if (!form.model_type) form.model_type = 'text'
+  } else {
+    // [修改] 新增模式：重置为默认值
+    Object.assign(form, { ...defaultForm, name: 'New Config' })
   }
   dialogVisible.value = true
 }
 
 const handleSubmit = async () => {
-  const payload = { ...form, api_key: form.api_key_masked }
+  // 构造提交载荷
+  // 注意：后端通常接收 'api_key' 字段，而前端表单绑定的是 'api_key_masked'
+  // 如果是编辑且用户没改密码（api_key_masked 为空或掩码），后端应处理不更新密码的逻辑
+  const payload = {
+    ...form,
+    api_key: form.api_key_masked,
+    // 显式确保 model_type 被发送
+    model_type: form.model_type
+  }
+
   try {
-    if (form.id) await axios.put(`/llm/${form.id}`, payload)
-    else await axios.post('/llm/', payload)
+    if (form.id) {
+      await axios.put(`/llm/${form.id}`, payload)
+    } else {
+      await axios.post('/llm/', payload)
+    }
     ElMessage.success('保存成功')
     dialogVisible.value = false
     fetchList()
-  } catch (e) { ElMessage.error('保存失败') }
+  } catch (e: any) {
+    // 简单的错误提示优化
+    const msg = e.response?.data?.detail || '保存失败'
+    ElMessage.error(msg)
+  }
 }
 
 const handleActivate = async (row: any) => {
-  await axios.post(`/llm/${row.id}/activate`)
-  ElMessage.success('已切换为当前配置')
-  fetchList()
+  try {
+    await axios.post(`/llm/${row.id}/activate`)
+    ElMessage.success('已切换为当前配置')
+    fetchList()
+  } catch (e) {
+    ElMessage.error('切换失败')
+  }
 }
 
 const handleDelete = async (id: number) => {
-  await axios.delete(`/llm/${id}`)
-  fetchList()
+  try {
+    await axios.delete(`/llm/${id}`)
+    ElMessage.success('删除成功')
+    fetchList()
+  } catch (e) {
+    ElMessage.error('删除失败')
+  }
 }
 
 onMounted(fetchList)

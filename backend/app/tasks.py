@@ -2,10 +2,12 @@ import logging
 import os
 import shutil
 import subprocess
+import time
 from datetime import datetime, timedelta
 from celery import Celery
 from .database import SessionLocal
-from .models import TestReport, TaskStatus
+from .models import TestReport, TaskStatus, KnowledgeDocument
+from .rag import RagService
 
 # 配置 Celery
 celery_app = Celery('midscene_worker', broker='redis://redis:6379/0')
@@ -16,15 +18,21 @@ REPORT_DIR = "/app/reports"
 @celery_app.task
 def run_midscene_task(report_id: int, llm_config: dict):
     """
-    执行 Midscene 任务
-    :param report_id: 报告 ID
-    :param llm_config: 包含 api_key, model_name, base_url 等的配置字典
+    执行 Midscene 任务 (增强版实时日志)
     """
+    logging.info(f"🚀 [Task Started] Report ID: {report_id}")
     db = SessionLocal()
     report = db.query(TestReport).filter(TestReport.id == report_id).first()
 
+    if not report:
+        logging.error(f"Report {report_id} not found.")
+        db.close()
+        return
+
     # 1. 更新状态为 Running
     report.status = TaskStatus.RUNNING
+    if report.logs is None:
+        report.logs = ""
     db.commit()
 
     run_id = f"run_{report_id}"
@@ -32,8 +40,7 @@ def run_midscene_task(report_id: int, llm_config: dict):
     os.makedirs(work_dir, exist_ok=True)
 
     try:
-        # 1. 查找该用例上一次成功的报告
-        # 注意：这里需要再次查询 DB，找到同一个 test_case_id 的最近一次 SUCCESS 记录
+        # --- 缓存恢复逻辑 (保持不变) ---
         last_success_report = db.query(TestReport) \
             .filter(TestReport.test_case_id == report.test_case_id) \
             .filter(TestReport.status == TaskStatus.SUCCESS) \
@@ -43,21 +50,17 @@ def run_midscene_task(report_id: int, llm_config: dict):
 
         if last_success_report:
             last_run_dir = os.path.join(REPORT_DIR, f"run_{last_success_report.id}")
-            # 假设缓存固定在 midscene_run/cache 目录下
             last_cache_dir = os.path.join(last_run_dir, "midscene_run", "cache")
-
             if os.path.exists(last_cache_dir):
                 target_cache_dir = os.path.join(work_dir, "midscene_run", "cache")
                 try:
-                    # 复制整个缓存目录
                     shutil.copytree(last_cache_dir, target_cache_dir, dirs_exist_ok=True)
-                    # 追加日志以便调试
-                    report.logs = f"系统缓存已从run_{last_success_report.id}恢复\n"
-                    logging.info(f"系统缓存已从run_{last_success_report.id}恢复")
+                    init_log = f"系统缓存已从run_{last_success_report.id}恢复\n"
+                    report.logs += init_log
                 except Exception as e:
-                    logging.info(f"系统缓存恢复失败: {e}")
+                    logging.warning(f"缓存恢复失败: {e}")
 
-        # 2. 判断脚本类型并写入文件
+        # --- 写入脚本 ---
         is_ts = report.test_case.script_type == 'typescript'
         file_ext = "ts" if is_ts else "yaml"
         script_filename = f"script.{file_ext}"
@@ -66,83 +69,146 @@ def run_midscene_task(report_id: int, llm_config: dict):
         with open(script_path, "w", encoding='utf-8') as f:
             f.write(report.script_content)
 
-        # 3. 核心：构建环境变量 (修复 'env' 未定义的问题)
-        env = os.environ.copy()  # <--- 必须先创建 env 对象
+        # --- 环境变量配置 ---
+        env = os.environ.copy()
+        # 基础 LLM 配置
+        if llm_config.get("api_key"): env["OPENAI_API_KEY"] = llm_config.get("api_key")
+        if llm_config.get("base_url"): env["OPENAI_BASE_URL"] = llm_config.get("base_url")
+        if llm_config.get("model_name"): env["MIDSCENE_MODEL_NAME"] = llm_config.get("model_name")
+        if llm_config.get("model_family"): env["MIDSCENE_MODEL_FAMILY"] = llm_config.get("model_family")
 
-        # (A) 注入 LLM 参数
-        if llm_config.get("api_key"):
-            env["OPENAI_API_KEY"] = llm_config.get("api_key")
-
-        if llm_config.get("base_url"):
-            env["OPENAI_BASE_URL"] = llm_config.get("base_url")
-
-        if llm_config.get("model_name"):
-            env["MIDSCENE_MODEL_NAME"] = llm_config.get("model_name")
-        if llm_config.get("model_family"):
-            env["MIDSCENE_MODEL_FAMILY"] = llm_config.get("model_family")
-            # --- 注入用户自定义环境参数 ---
+        # 用户自定义变量
         custom_env = llm_config.get("custom_env", {})
         for k, v in custom_env.items():
             env[str(k)] = str(v)
-        # (B) 设置 Node 路径 (确保能找到全局安装的 npm 包)
-        # Playwright 镜像基于 Ubuntu，通常在 /usr/lib/node_modules 或 /usr/local/lib/node_modules
-        # 我们这里把两个都加上以防万一
-        env["NODE_PATH"] = "/usr/lib/node_modules:/usr/local/lib/node_modules"
 
-        # 4. 构造执行命令
+        # 关键配置：强制开启调试日志并尝试禁用缓冲
+        env["NODE_PATH"] = "/usr/lib/node_modules:/usr/local/lib/node_modules"
+        env["MIDSCENE_DEBUG_LOG"] = "true"  # 让 Midscene 输出更多细节
+        env["PYTHONUNBUFFERED"] = "1"  # Python 无缓冲
+        env["FORCE_COLOR"] = "1"  # 保留颜色代码(可选，有时有助于输出)
+        env["DEBUG"] = "pw:api"  # 开启 Playwright 的 API 级调试日志
+
+        # --- 构造命令 ---
         if is_ts:
-            # TypeScript 模式：使用 tsx 直接运行
             cmd = ["tsx", script_path]
         else:
-            # YAML 模式：使用 midscene cli
             cmd = ["midscene", script_path]
 
-        # 5. 执行子进程
+        logging.info(f"Executing: {' '.join(cmd)}")
+
+        # --- 核心：执行并实时读取 ---
         process = subprocess.Popen(
             cmd,
             cwd=work_dir,
-            env=env,  # <--- 注入环境变量
+            env=env,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
+            stderr=subprocess.STDOUT,  # 合并输出流
+            text=True,
+            bufsize=1,  # 行缓冲
+            universal_newlines=True
         )
 
-        stdout, stderr = process.communicate()
+        # 实时读取循环
+        last_update_time = time.time()
+        current_logs = report.logs or ""
 
-        # 6. 处理结果
-        report.logs = f"STDOUT:\n{stdout}\n\nSTDERR:\n{stderr}"
-        # 容器镜像不带时区，在这里直接处理加8小时
-        report.end_time = datetime.now() + timedelta(hours=8)
+        # 使用 readline 逐行读取，直到进程结束
+        while True:
+            line = process.stdout.readline()
+            if not line and process.poll() is not None:
+                break
+
+            if line:
+                current_logs += line
+
+                # 节流：每 0.5 秒写入一次数据库，避免 IO 过高
+                if time.time() - last_update_time > 0.5:
+                    report.logs = current_logs
+                    db.commit()
+                    # logging.info(f"Log updated... ({len(current_logs)} chars)") # 调试用
+                    last_update_time = time.time()
+
+        # 循环结束后，确保最后的内容被写入
+        report.logs = current_logs
+
+        # --- 任务结果处理 ---
+        report.end_time = datetime.now()
 
         if process.returncode == 0:
             report.status = TaskStatus.SUCCESS
-
-            # 递归查找生成的 HTML 报告 (支持 Midscene 生成在子目录的情况)
+            logging.info("Task finished successfully.")
+            # 查找报告
             found_html = None
             for root, dirs, files in os.walk(work_dir):
                 for file in files:
                     if file.endswith(".html"):
-                        # 计算相对路径，例如: run_123/report/report.html
                         abs_path = os.path.join(root, file)
-                        rel_path = os.path.relpath(abs_path, REPORT_DIR)
-                        found_html = rel_path
+                        found_html = os.path.relpath(abs_path, REPORT_DIR)
                         break
-                if found_html:
-                    break
+                if found_html: break
 
             if found_html:
                 report.report_path = found_html
             else:
-                # 兼容情况：虽然成功了但没找到报告，可能是 Prompt 模式
-                report.logs += "\n\n系统任务已完成，但未找到HTML报告"
-                logging.info(f"系统任务已完成，但未找到HTML报告")
-
+                report.logs += "\n[System] Warning: No HTML report generated."
         else:
             report.status = TaskStatus.FAILED
+            report.logs += f"\n[System] Process exited with code {process.returncode}"
+            logging.error(f"Task failed with code {process.returncode}")
 
     except Exception as e:
+        logging.exception("Exception during task execution")
         report.status = TaskStatus.FAILED
-        report.logs = f"网络错误: {str(e)}"
+        report.logs = (report.logs or "") + f"\n[System Error] {str(e)}"
+    finally:
+        db.commit()
+        db.close()
+
+
+@celery_app.task
+def process_knowledge_file(doc_id: int, llm_config: dict):
+    db = SessionLocal()
+    try:
+        doc = db.query(KnowledgeDocument).filter(KnowledgeDocument.id == doc_id).first()
+        if not doc:
+            return
+
+        # 更新状态为解析中
+        doc.status = "processing"
+        db.commit()
+
+        # 1. 从字典中提取配置
+        api_key = llm_config.get("api_key")
+        base_url = llm_config.get("base_url")
+        model_name = llm_config.get("model_name")  # <--- 获取 model_name
+
+        logging.info(f"Task Start: Processing doc {doc_id} with model {model_name}")
+
+        # 2. 初始化 RAG 服务 (传入 model_name)
+        rag = RagService(
+            api_key=api_key,
+            base_url=base_url,
+            model_name=model_name
+        )
+
+        # 3. 执行解析
+        chunks_count = rag.process_document(doc.file_path)
+
+        # 4. 更新结果
+        if chunks_count > 0:
+            doc.status = "success"
+            doc.chunk_count = chunks_count
+            doc.error_msg = None
+        else:
+            doc.status = "failed"
+            doc.error_msg = "未提取到有效文本或解析后为空"
+
+    except Exception as e:
+        logging.error(f"Task Failed: {str(e)}")
+        doc.status = "failed"
+        # 截取前200个字符作为错误信息存入数据库
+        doc.error_msg = str(e)[:200]
     finally:
         db.commit()
         db.close()
