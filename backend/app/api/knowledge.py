@@ -76,30 +76,36 @@ def get_knowledge_list(db: Session = Depends(get_db)):
 async def generate_cases(
         requirement: str = Form(...),
         image_file: UploadFile = File(None),
+        reuse_image_path: str = Form(None),
         db: Session = Depends(get_db),
         current_user: models.User = Depends(get_current_user)
 ):
-    # --- A. 保存图片到本地 (如果存在) ---
-    image_path = None
+    # --- A. 确定最终使用的图片路径 ---
+    final_image_path = None
+
+    # 情况1: 用户上传了新图片 (优先级最高)
     if image_file:
         os.makedirs(UPLOAD_DIR, exist_ok=True)
-        # 获取后缀
         ext = image_file.filename.split('.')[-1]
-        # 使用 UUID 生成唯一文件名，防止覆盖
         new_filename = f"{uuid.uuid4()}.{ext}"
-        image_path = os.path.join(UPLOAD_DIR, new_filename)
+        final_image_path = os.path.join(UPLOAD_DIR, new_filename)
 
-        # 保存文件
         content = await image_file.read()
-        with open(image_path, "wb") as f:
+        with open(final_image_path, "wb") as f:
             f.write(content)
+
+    # 情况2: 用户没传新图，但指定了复用旧图
+    elif reuse_image_path:
+        # 简单校验一下文件是否存在，防止脏数据
+        if os.path.exists(reuse_image_path):
+            final_image_path = reuse_image_path
 
     # --- B. 创建数据库记录 (状态: processing) ---
     # 注意：models.TestCaseRecord 需要你已经在 models.py 中定义好
     new_record = models.TestCaseRecord(
         user_id=current_user.id,  # 这里直接存 int ID，因为取消了外键
         requirement=requirement,
-        image_path=image_path,
+        image_path=final_image_path,
         status="processing",
         result_json=[]
     )
@@ -170,10 +176,10 @@ async def generate_cases(
         2. 格式上：完全照搬【历史参考用例】的排版方式（包括换行、分割线、语气）。
         """
 
-        # --- 处理图片逻辑 (从本地路径读取) ---
-        if chat_config.model_type == 'multimodal' and image_path:
-            # 读取刚才保存的文件
-            with open(image_path, "rb") as img_f:
+        # --- 处理图片逻辑 (读取 final_image_path) ---
+        # 只要 final_image_path 有值，就说明有图 (无论是新的还是复用的)
+        if chat_config.model_type == 'multimodal' and final_image_path:
+            with open(final_image_path, "rb") as img_f:
                 image_data = img_f.read()
                 base64_image = base64.b64encode(image_data).decode('utf-8')
 
@@ -184,7 +190,7 @@ async def generate_cases(
             user_content.append({
                 "type": "image_url",
                 "image_url": {
-                    "url": f"data:image/jpeg;base64,{base64_image}"  # 假设是jpeg/png
+                    "url": f"data:image/jpeg;base64,{base64_image}"
                 }
             })
         else:
