@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from .. import models, schemas
 from typing import List
+from .auth import get_current_user
 
 router = APIRouter()
 
@@ -15,8 +16,12 @@ def get_llm_configs(db: Session = Depends(get_db)):
 
 # 创建/更新模型配置 (通用CRUD)
 @router.post("/", response_model=schemas.LLMConfig)
-def create_llm_config(config: schemas.LLMConfigCreate, db: Session = Depends(get_db)):
-    db_config = models.LLMConfig(**config.dict())
+def create_llm_config(config: schemas.LLMConfigCreate, db: Session = Depends(get_db),
+                      current_user: models.User = Depends(get_current_user)):
+    db_config = models.LLMConfig(
+        **config.dict(),
+        user_id=current_user.id
+    )
     db.add(db_config)
     db.commit()
     db.refresh(db_config)
@@ -58,7 +63,69 @@ def activate_model(
 
 # 删除模型
 @router.delete("/{config_id}")
-def delete_llm_config(config_id: int, db: Session = Depends(get_db)):
-    db.query(models.LLMConfig).filter(models.LLMConfig.id == config_id).delete()
+def delete_llm_config(
+        config_id: int,
+        db: Session = Depends(get_db),
+        current_user: models.User = Depends(get_current_user)  # 添加依赖
+):
+    # 查询时同时校验 id 和 user_id
+    config = db.query(models.LLMConfig).filter(
+        models.LLMConfig.id == config_id,
+        models.LLMConfig.user_id == current_user.id  # 确保只能删自己的
+    ).first()
+
+    if not config:
+        raise HTTPException(status_code=404, detail="Config not found or permission denied")
+
+    db.delete(config)
     db.commit()
     return {"status": "ok"}
+
+
+# backend/app/api/llm.py
+
+# ... (其他导入保持不变)
+from .. import models, schemas
+from .auth import get_current_user  # 确保引入了权限验证
+
+
+
+# 3. 更新配置
+@router.put("/{config_id}", response_model=schemas.LLMConfig)
+def update_llm_config(
+        config_id: int,
+        config_in: schemas.LLMConfigUpdate,
+        db: Session = Depends(get_db),
+        current_user: models.User = Depends(get_current_user)
+):
+    # 1. 查询配置是否存在
+    db_config = db.query(models.LLMConfig).filter(models.LLMConfig.id == config_id).first()
+    if not db_config:
+        raise HTTPException(status_code=404, detail="Config not found")
+
+    # 2. 权限校验：确保只能修改自己的配置
+    if db_config.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    # 3. 更新字段逻辑
+    update_data = config_in.dict(exclude_unset=True)
+
+    for field, value in update_data.items():
+        # 特殊处理 API Key：
+        # 如果前端传回的值包含 '*' (说明是掩码) 或者为空，则跳过更新，保留数据库原值
+        if field == "api_key":
+            if not value or "****" in value:
+                continue
+
+        # [可选] 如果你想在这里也支持更新激活状态（虽然建议用 /activate 接口）
+        # 你可以添加逻辑：如果更新了 is_active_chat=True，则先把其他的置为 False
+        # 这里为了安全起见，通常 Update 接口只负责修改内容，不负责切换状态
+
+        setattr(db_config, field, value)
+
+    db.commit()
+    db.refresh(db_config)
+
+    # Pydantic 的 response_model 会自动处理返回数据，
+    # 只要 schemas.LLMConfigOut 定义了 api_key_masked 且有计算逻辑/getter
+    return db_config

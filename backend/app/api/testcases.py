@@ -175,15 +175,15 @@ def run_test_case(
 
     check_case_permission(case, current_user)
 
+    # [修改] 使用新的字段 is_active_exec 查找“执行用例模型”
+    # 去掉了 use_for 查询条件
     llm_config = db.query(models.LLMConfig).filter(
         models.LLMConfig.user_id == current_user.id,
-        models.LLMConfig.is_active == True,
-        models.LLMConfig.use_for == "generation"  # <--- 专找生成模型
+        models.LLMConfig.is_active_exec == True  # <--- 核心修改点
     ).first()
 
     if not llm_config:
-        raise HTTPException(status_code=400, detail="请先激活一个'生成/测试用'的大模型")
-
+        raise HTTPException(status_code=400, detail="请先在'大模型配置'中激活一个'执行用例模型'")
 
     # 获取环境变量
     env_vars = {}
@@ -195,8 +195,7 @@ def run_test_case(
                 env_vars = json.loads(env_obj.variables)
             except:
                 pass
-    print(1111111)
-    logging.info("1111111")
+
     # 2. 准备配置字典
     llm_env_vars = {
         "api_key": llm_config.api_key,
@@ -287,13 +286,14 @@ def retry_report(
         if old_report.test_case.project.owner_id != current_user.id:
             raise HTTPException(status_code=403, detail="Permission denied")
 
+    # [修改] 使用 is_active_exec 查找“执行用例模型”
     llm_config = db.query(models.LLMConfig).filter(
         models.LLMConfig.user_id == current_user.id,
-        models.LLMConfig.is_active == True
+        models.LLMConfig.is_active_exec == True  # <--- 核心修改点
     ).first()
 
     if not llm_config or not llm_config.api_key:
-        raise HTTPException(status_code=400, detail="请先在'大模型配置'中激活一个有效的配置")
+        raise HTTPException(status_code=400, detail="请先在'大模型配置'中激活一个有效的'执行用例模型'")
 
     llm_env_vars = {
         "api_key": llm_config.api_key,
@@ -329,3 +329,4 @@ def debug_test_case(
 ):
     # 复用 run_test_case 的逻辑
     return run_test_case(case_id, env_id, db, current_user)
+

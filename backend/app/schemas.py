@@ -63,16 +63,6 @@ class TestCaseRecord(BaseModel):
     class Config:
         from_attributes = True
 
-class LLMConfigUpdate(LLMConfigCreate):
-    pass
-
-
-class LLMConfigOut(LLMConfigBase):
-    id: int
-    api_key_masked: Optional[str] = None
-
-    class Config:
-        from_attributes = True
 
 class MenuBase(BaseModel):
     title: str
