@@ -1,9 +1,9 @@
 <template>
   <el-container class="layout-container">
-    <el-aside width="220px" class="aside-container">
+    <el-aside width="240px" class="aside-container">
       <div class="logo-box">
         <img src="@/assets/logo.svg" alt="Logo" class="logo-img" />
-        <span class="logo-text">MidScene 平台</span>
+        <span class="logo-text">MidScene</span>
       </div>
 
       <el-scrollbar>
@@ -11,33 +11,35 @@
           :default-active="$route.path"
           router
           class="el-menu-vertical"
-          background-color="#1f2937"
-          text-color="#9ca3af"
-          active-text-color="#ffffff"
-          :unique-opened="false"
-          :collapse-transition="false"
+          text-color="#4b5563"
+          active-text-color="#4f46e5"
+          :unique-opened="true"
         >
           <template v-for="menu in menuList" :key="menu.id">
-            <el-sub-menu v-if="menu.children && menu.children.length > 0" :index="String(menu.id)">
+            <el-sub-menu v-if="menu.children?.length" :index="String(menu.id)">
               <template #title>
-                <el-icon v-if="menu.icon"><component :is="menu.icon" /></el-icon>
+                <el-icon><component :is="menu.icon" /></el-icon>
                 <span>{{ menu.title }}</span>
               </template>
               <el-menu-item v-for="child in menu.children" :key="child.id" :index="child.path">
-                <el-icon v-if="child.icon"><component :is="child.icon" /></el-icon>
                 <span>{{ child.title }}</span>
               </el-menu-item>
             </el-sub-menu>
+            
             <el-menu-item v-else :index="menu.path">
-              <el-icon v-if="menu.icon"><component :is="menu.icon" /></el-icon>
+              <el-icon><component :is="menu.icon" /></el-icon>
               <span>{{ menu.title }}</span>
             </el-menu-item>
           </template>
         </el-menu>
       </el-scrollbar>
+      
+      <div class="aside-footer">
+        <div class="version-badge">v1.0.0 Pro</div>
+      </div>
     </el-aside>
 
-    <el-container>
+    <el-container class="content-wrapper">
       <el-header class="header-container">
         <div class="header-left">
           <h2 class="page-title">{{ currentPageTitle }}</h2>
@@ -45,14 +47,13 @@
 
         <div class="header-right">
           <div class="env-selector">
-            <span class="env-label">环境:</span>
+            <span class="label">环境</span>
             <el-select
               v-model="envStore.currentEnvId"
-              placeholder="默认环境"
-              clearable
-              style="width: 160px"
+              placeholder="选择环境"
+              class="env-select"
+              size="small"
               @change="envStore.setEnvId"
-              size="default"
             >
               <el-option
                 v-for="env in envList"
@@ -63,16 +64,23 @@
             </el-select>
           </div>
 
-          <el-dropdown @command="handleCommand" trigger="click" class="user-dropdown">
-            <div class="user-info">
+          <div class="divider"></div>
+
+          <el-dropdown trigger="click" @command="handleCommand">
+            <div class="user-profile">
               <el-avatar :size="32" class="user-avatar">{{ userInitial }}</el-avatar>
-              <span class="user-name">{{ userStore.username }}</span>
-              <el-icon><ArrowDown /></el-icon>
+              <div class="user-meta">
+                <span class="username">{{ userStore.username }}</span>
+                <span class="role">管理员</span>
+              </div>
+              <el-icon class="arrow-icon"><ArrowDown /></el-icon>
             </div>
             <template #dropdown>
-              <el-dropdown-menu>
-                <el-dropdown-item command="password"><el-icon><Lock /></el-icon>修改密码</el-dropdown-item>
-                <el-dropdown-item divided command="logout" style="color: #f56c6c;">
+              <el-dropdown-menu class="custom-dropdown">
+                <el-dropdown-item command="password">
+                  <el-icon><Lock /></el-icon>修改密码
+                </el-dropdown-item>
+                <el-dropdown-item divided command="logout" style="color: #ef4444;">
                   <el-icon><SwitchButton /></el-icon>退出登录
                 </el-dropdown-item>
               </el-dropdown-menu>
@@ -83,25 +91,27 @@
 
       <el-main class="main-container">
         <router-view v-slot="{ Component }">
-          <transition name="fade-transform" mode="out-in">
+          <transition name="fade-slide" mode="out-in">
             <component :is="Component" />
           </transition>
         </router-view>
       </el-main>
     </el-container>
 
-    <el-dialog v-model="pwdDialogVisible" title="修改密码" width="400px" destroy-on-close append-to-body>
-      <el-form :model="pwdForm" label-width="80px" @submit.prevent>
-        <el-form-item label="旧密码">
-          <el-input v-model="pwdForm.old_password" type="password" show-password />
-        </el-form-item>
-        <el-form-item label="新密码">
-          <el-input v-model="pwdForm.new_password" type="password" show-password />
-        </el-form-item>
+    <el-dialog v-model="pwdDialogVisible" title="修改密码" width="400px" align-center>
+      <el-form :model="pwdForm" label-position="top" size="large">
+         <el-form-item label="旧密码">
+           <el-input v-model="pwdForm.old_password" type="password" show-password />
+         </el-form-item>
+         <el-form-item label="新密码">
+           <el-input v-model="pwdForm.new_password" type="password" show-password />
+         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="pwdDialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleChangePassword" :loading="pwdLoading">提交</el-button>
+        <div class="dialog-footer">
+          <el-button @click="pwdDialogVisible = false">取消</el-button>
+          <el-button type="primary" @click="handleChangePassword" :loading="pwdLoading">确认修改</el-button>
+        </div>
       </template>
     </el-dialog>
   </el-container>
@@ -114,9 +124,9 @@ import { useUserStore } from '@/stores/user'
 import { useEnvStore } from '@/stores/env'
 import axios from '@/utils/request'
 import { ElMessage } from 'element-plus'
-import {
-  ArrowDown, Lock, SwitchButton,
-  Odometer, Folder, Document, DataLine, Timer, Setting, User as UserIcon, Menu as MenuIcon
+import { 
+  ArrowDown, Lock, SwitchButton, 
+  Odometer, Folder, Document, DataLine, Setting, Menu as MenuIcon 
 } from '@element-plus/icons-vue'
 
 const router = useRouter()
@@ -124,17 +134,13 @@ const route = useRoute()
 const userStore = useUserStore()
 const envStore = useEnvStore()
 
-// --- 环境列表逻辑 ---
 const envList = ref<any[]>([])
-const fetchEnvs = async () => {
-  try {
-    const res = await axios.get('/envs/')
-    envList.value = res.data
-  } catch(e) { console.error(e) }
-}
-
-// --- 菜单逻辑 ---
 const menuList = ref<any[]>([])
+const pwdDialogVisible = ref(false)
+const pwdLoading = ref(false)
+const pwdForm = reactive({ old_password: '', new_password: '' })
+
+// 模拟或获取菜单数据
 const fetchUserMenus = async () => {
   try {
     const res = await axios.get('/menus/')
@@ -144,142 +150,144 @@ const fetchUserMenus = async () => {
       children: m.children?.map((c: any) => ({ ...c, icon: c.icon || 'Document' }))
     }))
   } catch (e) {
-    // Fallback 如果接口失败
+    // 默认菜单
     menuList.value = [
       { id: 1, title: '仪表盘', path: '/dashboard', icon: 'Odometer' },
       { id: 2, title: '项目管理', path: '/projects', icon: 'Folder' },
       { id: 3, title: '用例管理', path: '/testcases', icon: 'Document' },
       { id: 4, title: '测试报告', path: '/reports', icon: 'DataLine' },
+      { id: 5, title: '环境配置', path: '/envs', icon: 'Setting' },
     ]
   }
 }
 
-// --- UI 逻辑 ---
-const userInitial = computed(() => userStore.username ? userStore.username.charAt(0).toUpperCase() : 'U')
+const fetchEnvs = async () => {
+  try {
+    const res = await axios.get('/envs/')
+    envList.value = res.data
+  } catch(e) {}
+}
 
+const userInitial = computed(() => userStore.username ? userStore.username.charAt(0).toUpperCase() : 'U')
 const currentPageTitle = computed(() => {
-  const map: Record<string, string> = {
-    '/dashboard': '仪表盘',
-    '/projects': '项目管理',
-    '/testcases': '测试用例',
-    '/reports': '测试报告',
-    '/tasks': '定时任务',
-    '/llm-config': '模型配置',
-    '/envs': '环境管理',
-    '/users': '用户管理',
-    '/menus': '菜单管理'
-  }
-  const key = Object.keys(map).find(k => route.path.startsWith(k))
-  if (route.path === '/') return '仪表盘'
-  return key ? map[key] : 'MidScene'
+   const map: any = { '/dashboard': '仪表盘', '/testcases': '用例库', '/reports': '测试报告' }
+   const match = Object.keys(map).find(k => route.path.includes(k))
+   return match ? map[match] : '控制台'
 })
 
-const handleCommand = (command: string) => {
-  if (command === 'logout') handleLogout()
-  else if (command === 'password') pwdDialogVisible.value = true
+const handleCommand = (cmd: string) => { 
+  if(cmd === 'logout') { 
+    userStore.clearUser(); router.push('/login') 
+  } else { 
+    pwdDialogVisible.value = true 
+  } 
 }
-
-const handleLogout = () => {
-  userStore.clearUser()
-  router.push('/login')
-  ElMessage.success('已退出登录')
-}
-
-// --- 修改密码 ---
-const pwdDialogVisible = ref(false)
-const pwdLoading = ref(false)
-const pwdForm = reactive({ old_password: '', new_password: '' })
 
 const handleChangePassword = async () => {
   if (!pwdForm.old_password || !pwdForm.new_password) return ElMessage.warning('请填写完整')
   pwdLoading.value = true
   try {
     await axios.put('/auth/password', pwdForm)
-    ElMessage.success('密码修改成功，请重新登录')
+    ElMessage.success('修改成功，请重新登录')
     pwdDialogVisible.value = false
-    handleLogout()
-  } catch (error: any) {
-    if (error.response?.status === 400) ElMessage.error('旧密码错误')
-    else ElMessage.error('修改失败')
-  } finally { pwdLoading.value = false }
+    userStore.clearUser()
+    router.push('/login')
+  } catch (e) { ElMessage.error('修改失败') }
+  finally { pwdLoading.value = false }
 }
 
-onMounted(() => {
-  fetchUserMenus()
-  fetchEnvs()
-})
+onMounted(() => { fetchUserMenus(); fetchEnvs() })
 </script>
 
 <style scoped>
-.layout-container { height: 100vh; width: 100vw; display: flex; overflow: hidden; }
+.layout-container { height: 100vh; background: #f8fafc; }
 
-/* 侧边栏样式 */
+/* 侧边栏优化 */
 .aside-container {
-  background-color: #1f2937;
-  color: #fff;
+  background: #ffffff;
+  border-right: 1px solid #f1f5f9;
   display: flex;
   flex-direction: column;
-  box-shadow: 2px 0 6px rgba(0,0,0,0.1);
-  z-index: 10;
+  z-index: 20;
 }
 
 .logo-box {
   height: 64px;
   display: flex;
   align-items: center;
-  padding: 0 20px;
-  background-color: #111827;
-  border-bottom: 1px solid #374151;
+  padding: 0 24px;
+  /* border-bottom: 1px solid #f8fafc; */
 }
-.logo-img { width: 28px; height: 28px; margin-right: 12px; }
-.logo-text { font-size: 18px; font-weight: 600; color: #fff; letter-spacing: 0.5px; }
+.logo-img { width: 32px; height: 32px; margin-right: 12px; }
+.logo-text { font-size: 20px; font-weight: 700; color: #1e293b; letter-spacing: -0.5px; }
 
-.el-menu-vertical { border-right: none; flex: 1; }
+.el-menu-vertical { border: none; padding: 12px; }
+:deep(.el-menu-item), :deep(.el-sub-menu__title) {
+  border-radius: 8px;
+  margin-bottom: 4px;
+  height: 48px;
+  line-height: 48px;
+}
+:deep(.el-menu-item:hover), :deep(.el-sub-menu__title:hover) { background-color: #f8fafc; }
 :deep(.el-menu-item.is-active) {
-  background-color: #374151 !important;
-  border-left: 4px solid #6366f1;
-  color: #fff !important;
+  background-color: #eef2ff;
+  color: #4f46e5;
+  font-weight: 600;
+}
+:deep(.el-menu-item .el-icon) { font-size: 18px; margin-right: 12px; }
+
+.aside-footer { padding: 24px; margin-top: auto; text-align: center; }
+.version-badge { 
+  background: #f1f5f9; color: #64748b; 
+  font-size: 12px; padding: 4px 12px; 
+  border-radius: 12px; display: inline-block; 
 }
 
 /* 顶部 Header */
 .header-container {
   height: 64px;
-  background: #fff;
-  border-bottom: 1px solid #e5e7eb;
+  background: rgba(255,255,255,0.8);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid #f1f5f9;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 24px;
-  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-  z-index: 9;
+  padding: 0 32px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
 }
 
-.page-title { font-size: 18px; font-weight: 600; color: #1f2937; margin: 0; }
+.page-title { font-size: 18px; font-weight: 600; color: #1e293b; }
 
-.header-right { display: flex; align-items: center; gap: 24px; }
+.header-right { display: flex; align-items: center; gap: 16px; }
 
-.env-selector { display: flex; align-items: center; }
-.env-label { font-size: 14px; color: #6b7280; margin-right: 8px; font-weight: 500; }
+.env-selector { 
+  display: flex; align-items: center; 
+  background: #fff; border: 1px solid #e2e8f0;
+  padding: 2px 2px 2px 10px; border-radius: 6px; 
+}
+.env-selector .label { font-size: 12px; color: #64748b; margin-right: 6px; }
+:deep(.env-select .el-input__wrapper) { box-shadow: none !important; padding: 0 8px !important; }
 
-.user-info {
+.divider { height: 20px; width: 1px; background: #e2e8f0; margin: 0 8px; }
+
+.user-profile {
   display: flex; align-items: center; cursor: pointer;
-  padding: 4px 8px; border-radius: 6px; transition: background 0.2s;
+  padding: 6px; border-radius: 8px; transition: all 0.2s;
 }
-.user-info:hover { background: #f3f4f6; }
-.user-avatar { background: #6366f1; margin-right: 8px; font-size: 14px; font-weight: 600; }
-.user-name { font-size: 14px; font-weight: 500; color: #374151; margin-right: 6px; }
+.user-profile:hover { background: #f1f5f9; }
+.user-avatar { background: #4f46e5; font-size: 14px; margin-right: 10px; }
+.user-meta { display: flex; flex-direction: column; margin-right: 8px; }
+.username { font-size: 14px; font-weight: 500; color: #334155; line-height: 1.2; }
+.role { font-size: 11px; color: #94a3b8; }
+.arrow-icon { font-size: 12px; color: #94a3b8; }
 
 /* 主内容区 */
-.main-container {
-  background-color: #f3f4f6;
-  padding: 24px;
-  overflow-y: auto;
-  overflow-x: hidden; /* 修复滚动条问题的关键 */
-}
+.main-container { padding: 32px; overflow-x: hidden; }
 
-/* 页面切换动画 */
-.fade-transform-enter-active,
-.fade-transform-leave-active { transition: all 0.3s ease; }
-.fade-transform-enter-from { opacity: 0; transform: translateX(-10px); }
-.fade-transform-leave-to { opacity: 0; transform: translateX(10px); }
+/* 路由动画 */
+.fade-slide-enter-active, .fade-slide-leave-active { transition: all 0.25s ease; }
+.fade-slide-enter-from { opacity: 0; transform: translateY(8px); }
+.fade-slide-leave-to { opacity: 0; transform: translateY(-8px); }
 </style>

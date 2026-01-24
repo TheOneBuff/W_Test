@@ -20,19 +20,37 @@ class UserOut(UserBase):
 
 
 class LLMConfigBase(BaseModel):
-    name: str  # 必填
+    name: str
     provider: str
     model_name: str
     base_url: Optional[str] = None
     model_family: Optional[str] = None
     memo: Optional[str] = None
-    is_active: bool = False
     model_type: Optional[str] = "text"
-    use_for: Optional[str] = "generation"
+
+    # [修改] 这里不再需要 is_active 和 use_for，因为前端单独控制
+    # 如果前端表单提交时不需要设置激活状态，这里可以不写，
+    # 或者写上 Optional[bool] 作为默认值
 
 
 class LLMConfigCreate(LLMConfigBase):
     api_key: Optional[str] = None
+
+
+class LLMConfigUpdate(LLMConfigCreate):
+    pass
+
+
+class LLMConfig(LLMConfigBase):
+    id: int
+    api_key_masked: Optional[str] = None
+    is_active_chat: bool = False
+    is_active_gen: bool = False
+    is_active_exec: bool = False
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
 
 # --- [新增] 测试用例记录 ---
 class TestCaseRecord(BaseModel):

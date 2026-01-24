@@ -117,18 +117,25 @@ class LLMConfig(Base):
     user_id = Column(Integer, index=True)
 
     name = Column(String(100), nullable=False, default="Default Config")
-    is_active = Column(Boolean, default=False)
 
+    is_active_chat = Column(Boolean, default=False)  # 文本对话
+    is_active_gen = Column(Boolean, default=False)  # 用例生成
+    is_active_exec = Column(Boolean, default=False)  # 用例执行
+
+    # 2. 基础信息
     provider = Column(String(50), default="openai")
     model_name = Column(String(100), default="gpt-4o")
     api_key = Column(String(255), nullable=True)
     base_url = Column(String(255), nullable=True)
-    use_for = Column(String(20), default="generation", nullable=False)
-    # [新增] 模型类型：text (纯文本), multimodal (多模态/视觉)
-    model_type = Column(String(20), default="text", nullable=False)
 
+    # model_type 保留，用于区分视觉/文本模型
+    model_type = Column(String(20), default="text", nullable=False)
     model_family = Column(String(50), nullable=True)
     memo = Column(String(255), nullable=True)
+
+    # 3. [修复报错的关键] 添加时间字段
+    created_at = Column(DateTime, default=datetime.now())
+    updated_at = Column(DateTime, default=datetime.now(), onupdate=datetime.now())
 
     # LLMConfig -> User (Many-to-One)
     owner = relationship(

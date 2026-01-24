@@ -1,18 +1,21 @@
-<script setup lang="ts">
-import { RouterView } from 'vue-router'
-</script>
-
 <template>
-  <!-- 路由出口：Login.vue 或 HomeView.vue 会渲染在这里 -->
   <RouterView />
 </template>
 
 <style>
-/* 简单的全局重置，保证占满全屏 */
+/* Reset & Layout */
 html, body, #app {
   margin: 0;
   padding: 0;
   height: 100%;
   width: 100%;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background-color: var(--bg-body, #f3f4f6);
 }
+
+/* 全局滚动条美化 */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
 </style>

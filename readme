@@ -1,4 +1,4 @@
-1:#构建并启动后端 (在 midscene_platform 根目录):
+1:#构建并启动后端 (在 根目录):
 docker-compose up -d --build
 2:初始化数据库用户
 docker-compose exec backend python init_db.py

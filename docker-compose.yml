@@ -1,28 +1,32 @@
 services:
   # 数据库
-  db: # 服务名。在 Docker 内部网络中，你只需要使用 服务名 (Service Name) 来互相访问。
+  db:
     image: mysql:8.0
-    container_name: midscene_mysql_db
+    container_name: w_test_mysql_db  # 修改：项目名前缀改为 w_test_
     command: --default-authentication-plugin=mysql_native_password --bind-address=0.0.0.0
     ports:
       - "3306:3306"
     environment:
       MYSQL_ROOT_PASSWORD: whp1148..
-      MYSQL_DATABASE: midscene_db
+      MYSQL_DATABASE: w_test_db  # 修改：数据库名改为 w_test_db
       TZ: Asia/Shanghai
     healthcheck:
       test: [ "CMD", "mysqladmin", "ping", "-h", "localhost" ]
-      interval: 5s     # 每 5 秒检查一次
-      timeout: 3s      # 超时时间
-      retries: 10      # 最多重试 10 次 (共 50秒)
+      interval: 5s
+      timeout: 3s
+      retries: 10
     volumes:
-      - /Users/whp/mysql:/var/lib/mysql
+      - /Users/whp/mysql:/var/lib/mysql  # 修改：本地目录改为 w_test_mysql
+    networks:
+      - w_test_network  # 添加：使用自定义网络
 
   # Redis 消息队列
   redis:
     image: redis:7
-    container_name: midscene_redis
+    container_name: w_test_redis  # 修改
     restart: always
+    networks:
+      - w_test_network  # 添加
 
   # FastAPI 后端
   backend:
@@ -30,59 +34,69 @@ services:
       context: .
       dockerfile: docker/Dockerfile.hybrid
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
-    container_name: midscene_backend
+    container_name: w_test_backend  # 修改
     environment:
-      - TZ=Asia/Shanghai  # <--- 添加时区设置
+      - TZ=Asia/Shanghai
+      - APP_NAME=w_test  # 添加：应用名环境变量
+      - DB_NAME=w_test_db  # 添加：数据库名环境变量
     volumes:
       - ./backend:/app
-      - ./reports:/app/reports  # 挂载报告目录
+      - ./reports:/app/reports
       - ./chroma_data:/app/chroma_db
       - ./uploads:/app/uploads
-    restart: always  # <--- 添加这行
+    restart: always
     depends_on:
       db:
-        condition: service_healthy  # <--- 修改这里: 必须等 db 健康了才启动
+        condition: service_healthy
       redis:
         condition: service_started
     ports:
       - "8000:8000"
+    networks:
+      - w_test_network  # 添加
 
   # Celery Worker (执行引擎)
   worker:
     build:
       context: .
       dockerfile: docker/Dockerfile.hybrid
-    # 启动 Celery worker
     command: celery -A app.tasks worker --loglevel=info
-    container_name: midscene_worker
+    container_name: w_test_worker  # 修改
     environment:
-      - C_FORCE_ROOT=true  # 允许在容器root下运行
+      - C_FORCE_ROOT=true
       - TZ=Asia/Shanghai
+      - APP_NAME=w_test  # 添加
     volumes:
       - ./backend:/app
-      - ./reports:/app/reports # 必须挂载，用于写入报告
-    restart: always  # <--- 添加这行
+      - ./reports:/app/reports
+    restart: always
     depends_on:
       db:
-        condition: service_healthy  # <--- 修改这里
+        condition: service_healthy
       redis:
         condition: service_started
+    networks:
+      - w_test_network  # 添加
 
-# --- 修改重点如下 ---
+  # Nginx 前端
   nginx:
-    # 不再使用 image: nginx:alpine
-    # 改为从 frontend 目录构建
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    container_name: midscene_frontend
+    container_name: w_test_frontend  # 修改
     volumes:
-      # 1. 挂载测试报告目录 (这会"叠加"在镜像内的 /usr/share/nginx/html/reports 上)
       - ./reports:/usr/share/nginx/html/reports
-      # 2. 挂载配置文件
       - ./docker/nginx.conf:/etc/nginx/nginx.conf
       - ./uploads:/usr/share/nginx/html/uploads/
     ports:
       - "80:80"
     depends_on:
       - backend
+    networks:
+      - w_test_network  # 添加
+
+# 定义网络
+networks:
+  w_test_network:  # 添加：自定义网络，便于服务间通信
+    name: w_test_network
+    driver: bridge

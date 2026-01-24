@@ -1,64 +1,42 @@
 <template>
-  <div class="dashboard-container">
-    <el-row :gutter="24" class="mb-6">
-      <el-col :span="6">
-        <div class="stat-card blue">
-          <div class="icon-wrapper"><el-icon><Document /></el-icon></div>
-          <div class="content">
-            <div class="value">{{ stats.total_cases }}</div>
-            <div class="label">总用例数</div>
-          </div>
+  <div class="dashboard-wrapper">
+    <div class="stats-grid">
+      <div class="stat-card" v-for="(item, index) in statItems" :key="index">
+        <div class="stat-icon-bg" :class="item.colorClass">
+          <el-icon><component :is="item.icon" /></el-icon>
         </div>
-      </el-col>
-      <el-col :span="6">
-        <div class="stat-card green">
-          <div class="icon-wrapper"><el-icon><Monitor /></el-icon></div>
-          <div class="content">
-            <div class="value">{{ stats.total_envs }}</div>
-            <div class="label">环境配置</div>
-          </div>
+        <div class="stat-content">
+          <div class="stat-label">{{ item.label }}</div>
+          <div class="stat-value">{{ item.value }}</div>
         </div>
-      </el-col>
-      <el-col :span="6">
-        <div class="stat-card purple">
-          <div class="icon-wrapper"><el-icon><PieChart /></el-icon></div>
-          <div class="content">
-            <div class="value">{{ stats.pass_rate }}</div>
-            <div class="label">近期通过率</div>
-          </div>
+        <div class="stat-decoration">
+          <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M0 100 C 20 0 50 0 100 100 Z" fill="currentColor" opacity="0.1"/>
+          </svg>
         </div>
-      </el-col>
-      <el-col :span="6">
-        <div class="stat-card red">
-          <div class="icon-wrapper"><el-icon><Warning /></el-icon></div>
-          <div class="content">
-            <div class="value">{{ stats.failed_count }}</div>
-            <div class="label">最近失败</div>
-          </div>
-        </div>
-      </el-col>
-    </el-row>
+      </div>
+    </div>
 
-    <el-card shadow="never" class="chart-card">
-      <template #header>
-        <div class="card-header">
-          <div class="title">
-            <el-icon class="mr-2"><TrendCharts /></el-icon>
-            每日新增用例趋势
+    <div class="charts-section">
+      <div class="chart-container">
+        <div class="chart-header">
+          <div class="header-title">
+            <div class="title-icon"><el-icon><TrendCharts /></el-icon></div>
+            <span>用例执行趋势</span>
           </div>
           <el-radio-group v-model="chartDays" size="small" @change="fetchChartData">
             <el-radio-button label="7">近7天</el-radio-button>
             <el-radio-button label="30">近30天</el-radio-button>
           </el-radio-group>
         </div>
-      </template>
-      <div ref="chartRef" style="width: 100%; height: 350px;"></div>
-    </el-card>
+        <div ref="chartRef" class="echarts-box"></div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, onMounted, onUnmounted, computed } from 'vue'
 import axios from '@/utils/request'
 import * as echarts from 'echarts'
 import { Document, Monitor, PieChart, Warning, TrendCharts } from '@element-plus/icons-vue'
@@ -70,132 +48,164 @@ const stats = reactive({
   failed_count: 0
 })
 
+const statItems = computed(() => [
+  { label: '总用例数', value: stats.total_cases, icon: 'Document', colorClass: 'blue' },
+  { label: '环境节点', value: stats.total_envs, icon: 'Monitor', colorClass: 'green' },
+  { label: '通过率', value: stats.pass_rate, icon: 'PieChart', colorClass: 'purple' },
+  { label: '最近失败', value: stats.failed_count, icon: 'Warning', colorClass: 'red' },
+])
+
 const chartDays = ref('7')
 const chartRef = ref<HTMLElement>()
 let myChart: echarts.ECharts | null = null
 
-// 初始化数据
 const initData = async () => {
-  // [修复] 分开请求，避免一个 404 导致所有数据丢失
-  // 1. 获取用例总数
-  try {
-    const res = await axios.get('/testcases/')
-    stats.total_cases = res.data.length
-  } catch (e) { console.error('Failed to fetch cases', e) }
-
-  // 2. 获取环境总数 [修复接口地址 /environments/ -> /envs/]
-  try {
-    const res = await axios.get('/envs/')
-    stats.total_envs = res.data.length
-  } catch (e) { console.error('Failed to fetch envs', e) }
-
-  // 3. 获取近期报告计算通过率
-  try {
-    const res = await axios.get('/testcases/reports/', { params: { limit: 50 } })
-    // 注意：接口返回结构可能是 { items: [], total: ... }
-    const reports = Array.isArray(res.data) ? res.data : (res.data.items || [])
-
-    if (reports.length > 0) {
-      const passed = reports.filter((r: any) => r.status === 'success').length
-      stats.pass_rate = Math.round((passed / reports.length) * 100) + '%'
-      stats.failed_count = reports.filter((r: any) => r.status === 'failed').length
-    }
-  } catch (e) { console.error('Failed to fetch reports', e) }
-
-  // 4. 加载图表
-  await fetchChartData()
+  // 并行请求，防止阻塞
+  Promise.allSettled([
+    axios.get('/testcases/').then(res => stats.total_cases = res.data.length),
+    axios.get('/envs/').then(res => stats.total_envs = res.data.length),
+    axios.get('/testcases/reports/', { params: { limit: 50 } }).then(res => {
+      const reports = Array.isArray(res.data) ? res.data : (res.data.items || [])
+      if (reports.length > 0) {
+        const passed = reports.filter((r: any) => r.status === 'success').length
+        stats.pass_rate = Math.round((passed / reports.length) * 100) + '%'
+        stats.failed_count = reports.filter((r: any) => r.status === 'failed').length
+      }
+    })
+  ]).finally(() => fetchChartData())
 }
 
 const fetchChartData = async () => {
-  if (!myChart && chartRef.value) {
-    myChart = echarts.init(chartRef.value)
-  }
-  myChart?.showLoading()
+  if (!myChart && chartRef.value) myChart = echarts.init(chartRef.value)
+  myChart?.showLoading({ color: '#4f46e5', maskColor: 'rgba(255,255,255,0.8)' })
 
   try {
     const res = await axios.get('/dashboard/trend', { params: { days: chartDays.value } })
-
     const option = {
-      tooltip: { trigger: 'axis' },
-      legend: { bottom: 0, icon: 'circle' },
-      grid: { top: '15%', left: '2%', right: '4%', bottom: '10%', containLabel: true },
+      tooltip: { 
+        trigger: 'axis',
+        backgroundColor: 'rgba(255, 255, 255, 0.9)',
+        borderColor: '#e5e7eb',
+        textStyle: { color: '#374151' },
+        padding: 12
+      },
+      grid: { top: 30, right: 30, bottom: 20, left: 20, containLabel: true },
       xAxis: {
         type: 'category',
-        boundaryGap: false,
         data: res.data.dates,
-        axisLine: { lineStyle: { color: '#e5e7eb' } },
-        axisLabel: { color: '#6b7280' }
+        axisLine: { show: false },
+        axisTick: { show: false },
+        axisLabel: { color: '#9ca3af', margin: 12 }
       },
       yAxis: {
         type: 'value',
-        splitLine: { lineStyle: { type: 'dashed', color: '#f3f4f6' } }
+        splitLine: { lineStyle: { type: 'dashed', color: '#f3f4f6' } },
+        axisLabel: { color: '#9ca3af' }
       },
-      series: res.data.series.map((item: any) => ({
+      series: res.data.series.map((item: any, idx: number) => ({
         name: item.name,
         type: 'line',
         smooth: true,
-        showSymbol: false,
-        lineStyle: { width: 3 },
+        symbol: 'circle',
+        symbolSize: 8,
+        itemStyle: { color: idx === 0 ? '#4f46e5' : '#10b981' },
+        areaStyle: {
+          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+            { offset: 0, color: idx === 0 ? 'rgba(79, 70, 229, 0.15)' : 'rgba(16, 185, 129, 0.15)' },
+            { offset: 1, color: 'rgba(255,255,255,0)' }
+          ])
+        },
         data: item.data
       }))
     }
     myChart?.setOption(option)
-  } catch (e) {
-    console.error('Chart Error', e)
-  } finally {
-    myChart?.hideLoading()
-  }
+  } catch (e) { console.error(e) } 
+  finally { myChart?.hideLoading() }
 }
 
 const handleResize = () => myChart?.resize()
-
-onMounted(() => {
-  initData()
-  window.addEventListener('resize', handleResize)
-})
-onUnmounted(() => {
-  window.removeEventListener('resize', handleResize)
-  myChart?.dispose()
-})
+onMounted(() => { initData(); window.addEventListener('resize', handleResize) })
+onUnmounted(() => { window.removeEventListener('resize', handleResize); myChart?.dispose() })
 </script>
 
 <style scoped>
-.dashboard-container { padding: 0; }
-.mb-6 { margin-bottom: 24px; }
+.dashboard-wrapper { max-width: 1600px; margin: 0 auto; }
 
-/* 统计卡片样式 */
+/* 卡片 Grid 布局 */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 24px;
+  margin-bottom: 24px;
+}
+
 .stat-card {
   background: #fff;
-  border-radius: 12px;
+  border-radius: 16px;
   padding: 24px;
   display: flex;
   align-items: center;
-  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
+  position: relative;
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
   transition: all 0.3s ease;
   border: 1px solid #f3f4f6;
 }
-.stat-card:hover { transform: translateY(-4px); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); }
 
-.icon-wrapper {
-  width: 56px; height: 56px;
-  border-radius: 16px;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 28px;
-  margin-right: 16px;
+.stat-card:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-lg);
 }
 
-.content { flex: 1; }
-.value { font-size: 28px; font-weight: 700; color: #111827; line-height: 1.2; }
-.label { font-size: 14px; color: #6b7280; margin-top: 4px; }
+.stat-icon-bg {
+  width: 56px; height: 56px;
+  border-radius: 14px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 26px;
+  margin-right: 20px;
+  z-index: 2;
+}
+.stat-icon-bg.blue { background: #e0e7ff; color: #4f46e5; }
+.stat-icon-bg.green { background: #d1fae5; color: #10b981; }
+.stat-icon-bg.purple { background: #f3e8ff; color: #9333ea; }
+.stat-icon-bg.red { background: #fee2e2; color: #ef4444; }
 
-/* 颜色主题 */
-.blue .icon-wrapper { background: #eff6ff; color: #3b82f6; }
-.green .icon-wrapper { background: #ecfdf5; color: #10b981; }
-.purple .icon-wrapper { background: #f5f3ff; color: #8b5cf6; }
-.red .icon-wrapper { background: #fef2f2; color: #ef4444; }
+.stat-content { z-index: 2; }
+.stat-label { font-size: 14px; color: #6b7280; margin-bottom: 4px; }
+.stat-value { font-size: 32px; font-weight: 700; color: #111827; letter-spacing: -0.5px; }
 
-.chart-card { border-radius: 12px; border: none; box-shadow: 0 1px 3px 0 rgba(0,0,0,0.05); }
-.card-header { display: flex; justify-content: space-between; align-items: center; }
-.title { font-size: 16px; font-weight: 600; color: #374151; display: flex; align-items: center; }
-.mr-2 { margin-right: 8px; }
+/* 装饰背景 */
+.stat-decoration {
+  position: absolute; right: -20px; bottom: -20px;
+  width: 120px; height: 120px;
+  color: #f3f4f6;
+  z-index: 1;
+}
+
+/* 图表区域 */
+.chart-container {
+  background: #fff;
+  padding: 24px 32px;
+  border-radius: 16px;
+  box-shadow: var(--shadow-sm);
+  border: 1px solid #f3f4f6;
+}
+
+.chart-header {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 32px;
+}
+.header-title { 
+  font-size: 18px; font-weight: 600; color: #1f2937; 
+  display: flex; align-items: center; gap: 10px; 
+}
+.title-icon {
+  background: #f3f4f6; padding: 6px; border-radius: 8px;
+  display: flex; color: #4b5563;
+}
+
+.echarts-box { width: 100%; height: 400px; }
+
+@media (max-width: 1200px) { .stats-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 640px) { .stats-grid { grid-template-columns: 1fr; } }
 </style>
