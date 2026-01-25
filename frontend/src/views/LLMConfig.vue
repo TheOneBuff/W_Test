@@ -1,12 +1,12 @@
 <template>
   <div class="llm-container">
     <div class="active-models-section">
-      <div class="section-title">功能模型路由</div>
+      <div class="section-title">LLM配置</div>
       <div class="status-grid">
         <div class="status-card chat">
           <div class="card-icon"><el-icon><ChatDotRound /></el-icon></div>
           <div class="card-info">
-            <div class="label">文本对话模型</div>
+            <div class="label">文本模型</div>
             <div class="value">{{ activeModels.chat?.name || '未配置' }}</div>
             <div class="model-tag">{{ activeModels.chat?.model_name || '-' }}</div>
           </div>
@@ -59,13 +59,13 @@
         <el-table-column label="应用场景设置" width="300" align="center">
           <template #default="{ row }">
             <div class="switch-group">
-              <el-tooltip content="设为对话模型" placement="top">
+              <el-tooltip content="设为文本模型 (用于知识库RAG)" placement="top">
                 <div
                   class="role-btn"
                   :class="{ active: row.is_active_chat }"
                   @click="activateModel(row, 'chat')"
                 >
-                  <el-icon><ChatDotRound /></el-icon> 对话
+                  <el-icon><ChatDotRound /></el-icon> 文本
                 </div>
               </el-tooltip>
 
@@ -138,22 +138,22 @@
         <el-form-item label="Base URL (可选)">
           <el-input v-model="form.base_url" placeholder="例如: https://api.deepseek.com" />
         </el-form-item>
-        
+
         <el-form-item label="API Key">
-          <el-input 
-            v-model="form.api_key" 
-            type="password" 
-            show-password 
+          <el-input
+            v-model="form.api_key"
+            type="password"
+            show-password
             placeholder="留空则不修改 (仅编辑时)"
           />
         </el-form-item>
 
         <el-form-item label="备注">
-          <el-input 
-            v-model="form.memo" 
-            type="textarea" 
-            :rows="2" 
-            placeholder="可选备注信息..." 
+          <el-input
+            v-model="form.memo"
+            type="textarea"
+            :rows="2"
+            placeholder="可选备注信息..."
           />
         </el-form-item>
       </el-form>
@@ -191,14 +191,13 @@ const loading = ref(false)
 const submitting = ref(false)
 const dialogVisible = ref(false)
 
-// [修改] 补全 form 定义
-const form = reactive({ 
-  id: null as number | null, 
-  name: '', 
-  provider: 'openai', 
-  model_name: '', 
-  model_family: '', 
-  base_url: '', 
+const form = reactive({
+  id: null as number | null,
+  name: '',
+  provider: 'openai',
+  model_name: '',
+  model_family: '',
+  base_url: '',
   api_key: '',
   memo: ''
 })
@@ -254,10 +253,10 @@ const openDialog = (row?: LLMConfig) => {
     form.name = row.name
     form.provider = row.provider
     form.model_name = row.model_name
-    form.model_family = row.model_family || '' // [新增] 回显
+    form.model_family = row.model_family || ''
     form.base_url = row.base_url || ''
-    form.api_key = '' // 编辑时不默认回显 Key，防止泄露，只在修改时提交
-    form.memo = row.memo || '' // [新增] 回显
+    form.api_key = ''
+    form.memo = row.memo || ''
   } else {
     // 新增模式：重置表单
     form.id = null
@@ -274,11 +273,10 @@ const openDialog = (row?: LLMConfig) => {
 
 const handleSubmit = async () => {
   if (!form.name || !form.model_name) return ElMessage.warning('请填写必填项')
-  
+
   submitting.value = true
   try {
     if (form.id) {
-        // 编辑：如果是空字符串的 api_key，后端通常不更新它（取决于后端逻辑，这里传空字符串）
         await axios.put(`/llm/${form.id}`, form)
     } else {
         await axios.post('/llm/', form)
@@ -286,8 +284,8 @@ const handleSubmit = async () => {
     ElMessage.success('保存成功')
     dialogVisible.value = false
     fetchList()
-  } catch(e) { 
-    ElMessage.error('保存失败') 
+  } catch(e) {
+    ElMessage.error('保存失败')
   } finally {
     submitting.value = false
   }
@@ -354,7 +352,7 @@ onMounted(fetchList)
 
 /* 激活状态 */
 .role-btn.active { font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,0.1); }
-.role-btn.active:nth-child(1) { background: #eff6ff; color: #3b82f6; border-color: #bfdbfe; } /* Chat */
+.role-btn.active:nth-child(1) { background: #eff6ff; color: #3b82f6; border-color: #bfdbfe; } /* Chat (Vector) */
 .role-btn.active:nth-child(2) { background: #f5f3ff; color: #8b5cf6; border-color: #ddd6fe; } /* Gen */
 .role-btn.active:nth-child(3) { background: #ecfdf5; color: #10b981; border-color: #bbf7d0; } /* Exec */
 

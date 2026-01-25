@@ -39,11 +39,12 @@ services:
       - TZ=Asia/Shanghai
       - APP_NAME=w_test  # 添加：应用名环境变量
       - DB_NAME=w_test_db  # 添加：数据库名环境变量
+      - ANONYMIZED_TELEMETRY=False
     volumes:
       - ./backend:/app
-      - ./reports:/app/reports
-      - ./chroma_data:/app/chroma_db
-      - ./uploads:/app/uploads
+      - ./uploads:/data/uploads
+      - ./chroma_db:/data/chroma_db
+      - ./reports:/data/reports
     restart: always
     depends_on:
       db:
@@ -66,9 +67,12 @@ services:
       - C_FORCE_ROOT=true
       - TZ=Asia/Shanghai
       - APP_NAME=w_test  # 添加
+      - ANONYMIZED_TELEMETRY=False
     volumes:
       - ./backend:/app
-      - ./reports:/app/reports
+      - ./uploads:/data/uploads
+      - ./chroma_db:/data/chroma_db
+      - ./reports:/data/reports
     restart: always
     depends_on:
       db:

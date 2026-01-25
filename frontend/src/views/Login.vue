@@ -10,7 +10,7 @@
         <div class="logo-circle">
           <img src="@/assets/logo.svg" alt="Logo" />
         </div>
-        <h1>MidScene</h1>
+        <h1>W_Test</h1>
         <p>新一代智能自动化测试平台</p>
       </div>
 

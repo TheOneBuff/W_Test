@@ -2,8 +2,7 @@
   <el-container class="layout-container">
     <el-aside width="240px" class="aside-container">
       <div class="logo-box">
-        <img src="@/assets/logo.svg" alt="Logo" class="logo-img" />
-        <span class="logo-text">MidScene</span>
+        <span class="logo-text">W_Test</span>
       </div>
 
       <el-scrollbar>

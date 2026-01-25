@@ -118,7 +118,7 @@ class LLMConfig(Base):
 
     name = Column(String(100), nullable=False, default="Default Config")
 
-    is_active_chat = Column(Boolean, default=False)  # 文本对话
+    is_active_chat = Column(Boolean, default=False)  # 向量对话
     is_active_gen = Column(Boolean, default=False)  # 用例生成
     is_active_exec = Column(Boolean, default=False)  # 用例执行
 

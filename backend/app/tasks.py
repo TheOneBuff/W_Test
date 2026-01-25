@@ -12,7 +12,8 @@ from .rag import RagService
 # 配置 Celery
 celery_app = Celery('midscene_worker', broker='redis://redis:6379/0')
 
-REPORT_DIR = "/app/reports"
+# [修改] 使用 /data 目录，配合 Docker 的 volume 挂载，防止污染 backend 代码目录
+REPORT_DIR = "/data/reports"
 
 
 @celery_app.task
@@ -40,7 +41,7 @@ def run_midscene_task(report_id: int, llm_config: dict):
     os.makedirs(work_dir, exist_ok=True)
 
     try:
-        # --- 缓存恢复逻辑 (保持不变) ---
+        # --- 缓存恢复逻辑 ---
         last_success_report = db.query(TestReport) \
             .filter(TestReport.test_case_id == report.test_case_id) \
             .filter(TestReport.status == TaskStatus.SUCCESS) \
@@ -84,10 +85,10 @@ def run_midscene_task(report_id: int, llm_config: dict):
 
         # 关键配置：强制开启调试日志并尝试禁用缓冲
         env["NODE_PATH"] = "/usr/lib/node_modules:/usr/local/lib/node_modules"
-        env["MIDSCENE_DEBUG_LOG"] = "true"  # 让 Midscene 输出更多细节
-        env["PYTHONUNBUFFERED"] = "1"  # Python 无缓冲
-        env["FORCE_COLOR"] = "1"  # 保留颜色代码(可选，有时有助于输出)
-        env["DEBUG"] = "pw:api"  # 开启 Playwright 的 API 级调试日志
+        env["MIDSCENE_DEBUG_LOG"] = "true"
+        env["PYTHONUNBUFFERED"] = "1"
+        env["FORCE_COLOR"] = "1"
+        env["DEBUG"] = "pw:api"
 
         # --- 构造命令 ---
         if is_ts:
@@ -103,9 +104,9 @@ def run_midscene_task(report_id: int, llm_config: dict):
             cwd=work_dir,
             env=env,
             stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,  # 合并输出流
+            stderr=subprocess.STDOUT,
             text=True,
-            bufsize=1,  # 行缓冲
+            bufsize=1,
             universal_newlines=True
         )
 
@@ -113,7 +114,6 @@ def run_midscene_task(report_id: int, llm_config: dict):
         last_update_time = time.time()
         current_logs = report.logs or ""
 
-        # 使用 readline 逐行读取，直到进程结束
         while True:
             line = process.stdout.readline()
             if not line and process.poll() is not None:
@@ -121,29 +121,26 @@ def run_midscene_task(report_id: int, llm_config: dict):
 
             if line:
                 current_logs += line
-
-                # 节流：每 0.5 秒写入一次数据库，避免 IO 过高
+                # 节流：每 0.5 秒写入一次数据库
                 if time.time() - last_update_time > 0.5:
                     report.logs = current_logs
                     db.commit()
-                    # logging.info(f"Log updated... ({len(current_logs)} chars)") # 调试用
                     last_update_time = time.time()
 
-        # 循环结束后，确保最后的内容被写入
         report.logs = current_logs
-
-        # --- 任务结果处理 ---
         report.end_time = datetime.now()
 
+        # --- 结果判定 ---
         if process.returncode == 0:
             report.status = TaskStatus.SUCCESS
             logging.info("Task finished successfully.")
-            # 查找报告
+            # 查找生成的 HTML 报告
             found_html = None
             for root, dirs, files in os.walk(work_dir):
                 for file in files:
                     if file.endswith(".html"):
                         abs_path = os.path.join(root, file)
+                        # 计算相对路径，供前端访问
                         found_html = os.path.relpath(abs_path, REPORT_DIR)
                         break
                 if found_html: break
@@ -168,6 +165,9 @@ def run_midscene_task(report_id: int, llm_config: dict):
 
 @celery_app.task
 def process_knowledge_file(doc_id: int, llm_config: dict):
+    """
+    后台任务：处理知识库文件上传与向量化
+    """
     db = SessionLocal()
     try:
         doc = db.query(KnowledgeDocument).filter(KnowledgeDocument.id == doc_id).first()
@@ -178,14 +178,14 @@ def process_knowledge_file(doc_id: int, llm_config: dict):
         doc.status = "processing"
         db.commit()
 
-        # 1. 从字典中提取配置
+        # 1. 提取配置
         api_key = llm_config.get("api_key")
         base_url = llm_config.get("base_url")
-        model_name = llm_config.get("model_name")  # <--- 获取 model_name
+        model_name = llm_config.get("model_name")
 
         logging.info(f"Task Start: Processing doc {doc_id} with model {model_name}")
 
-        # 2. 初始化 RAG 服务 (传入 model_name)
+        # 2. 初始化 RAG 服务
         rag = RagService(
             api_key=api_key,
             base_url=base_url,
@@ -204,11 +204,21 @@ def process_knowledge_file(doc_id: int, llm_config: dict):
             doc.status = "failed"
             doc.error_msg = "未提取到有效文本或解析后为空"
 
-    except Exception as e:
-        logging.error(f"Task Failed: {str(e)}")
-        doc.status = "failed"
-        # 截取前200个字符作为错误信息存入数据库
-        doc.error_msg = str(e)[:200]
-    finally:
+        # 成功时提交
         db.commit()
+
+    except Exception as e:
+        # [核心修复] 回滚事务，确保后续的状态更新能成功写入
+        db.rollback()
+        logging.error(f"Task Failed: {str(e)}")
+
+        # 重新获取对象（rollback 后 session 可能会清理掉之前的对象状态）
+        doc = db.query(KnowledgeDocument).filter(KnowledgeDocument.id == doc_id).first()
+        if doc:
+            doc.status = "failed"
+            # 截取错误信息，防止过长
+            doc.error_msg = str(e)[:200]
+            db.commit()
+
+    finally:
         db.close()

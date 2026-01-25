@@ -7,7 +7,11 @@
       </div>
 
       <div class="actions">
-        <el-button :icon="Refresh" circle @click="fetchList" title="刷新列表" style="margin-right: 12px" />
+        <el-button :icon="Search" @click="openSearchDialog" style="margin-right: 12px">
+          检索测试
+        </el-button>
+
+        <el-button :icon="Refresh" circle @click="() => fetchList(true)" title="刷新列表" style="margin-right: 12px" />
 
         <el-upload
           :action="uploadUrl"
@@ -17,8 +21,9 @@
           :on-error="handleUploadError"
           :before-upload="beforeUpload"
           accept=".pdf,.docx,.txt,.xlsx,.xls,.csv"
+          :disabled="uploading"
         >
-          <el-button type="primary" :icon="Upload">上传文档 / 历史用例</el-button>
+          <el-button type="primary" :icon="Upload" :loading="uploading">上传文档 / 历史用例</el-button>
         </el-upload>
       </div>
     </div>
@@ -45,8 +50,9 @@
         <el-table-column prop="status" label="状态" width="110" align="center">
           <template #default="{row}">
             <el-tag v-if="row.status === 'success'" type="success" effect="light">已完成</el-tag>
-            <el-tag v-else-if="row.status === 'pending'" type="warning" effect="light">解析中</el-tag>
-            <el-tag v-else type="danger" effect="light">失败</el-tag>
+            <el-tag v-else-if="['pending', 'processing'].includes(row.status)" type="warning" effect="light">解析中</el-tag>
+            <el-tag v-else-if="row.status === 'failed'" type="danger" effect="light">失败</el-tag>
+            <el-tag v-else type="info" effect="plain">{{ row.status || '未知' }}</el-tag>
           </template>
         </el-table-column>
 
@@ -107,47 +113,100 @@
         </el-table-column>
       </el-table>
     </el-card>
+
+    <el-dialog v-model="searchDialogVisible" title="向量库检索测试" width="600px">
+      <div class="search-box">
+        <el-input
+          v-model="searchQuery"
+          placeholder="输入测试用例需求或关键字"
+          @keyup.enter="handleSearch"
+          clearable
+        >
+          <template #append>
+            <el-button :icon="Search" @click="handleSearch" :loading="searching">搜索</el-button>
+          </template>
+        </el-input>
+      </div>
+
+      <div class="search-results" v-loading="searching">
+        <el-empty v-if="!searchResults.length && !searching" description="暂无相关匹配数据" :image-size="80" />
+        <div v-else class="result-list">
+          <div v-for="(item, index) in searchResults" :key="index" class="result-item">
+            <div class="result-meta">
+              <el-tag size="small" effect="plain">匹配度参考: Top {{ index + 1 }}</el-tag>
+              <span class="source-file" v-if="item.metadata?.source">
+                📄 {{ getFileName(item.metadata.source) }}
+              </span>
+            </div>
+            <div class="result-content">{{ item.content }}</div>
+          </div>
+        </div>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
 import axios from '@/utils/request'
-import { Upload, Document, Delete, Refresh, RefreshRight } from '@element-plus/icons-vue'
+import { Upload, Document, Delete, Refresh, RefreshRight, Search } from '@element-plus/icons-vue'
 import dayjs from 'dayjs'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
-// --- 状态定义 ---
 const list = ref([])
 const loading = ref(false)
-const reprocessingId = ref<number | null>(null) // 记录正在重试的行ID，用于显示 loading
-let timer: any = null // 轮询定时器
+const uploading = ref(false) // 上传状态锁
+const reprocessingId = ref<number | null>(null)
+let timer: any = null
 
-// 上传配置 (vite 代理转发 /api -> 后端)
 const uploadUrl = '/api/knowledge/upload'
 const headers = { Authorization: `Bearer ${localStorage.getItem('token')}` }
 
-// --- 核心方法 ---
+const searchDialogVisible = ref(false)
+const searchQuery = ref('')
+const searchResults = ref<any[]>([])
+const searching = ref(false)
 
-// 1. 获取列表
-const fetchList = async () => {
-  // 如果是静默刷新(例如轮询中)，不需要 loading 遮罩
-  if (!timer) loading.value = true
+// [修改] 增加时间戳，防止浏览器缓存
+const fetchList = async (showLoading = true) => {
+  if (showLoading) loading.value = true
   try {
-    const res = await axios.get('/knowledge/list')
+    const res = await axios.get(`/knowledge/list?_t=${new Date().getTime()}`)
     list.value = res.data
   } catch(e) {
     console.error(e)
   } finally {
-    if (!timer) loading.value = false
+    if (showLoading) loading.value = false
   }
 }
 
-// 2. 重新解析 (Reprocess)
+const startPolling = () => {
+  if (timer) clearInterval(timer)
+  let count = 0
+
+  timer = setInterval(async () => {
+    count++
+    try {
+      await fetchList(false)
+
+      const hasPending = list.value.some((item: any) =>
+        ['pending', 'processing'].includes(item.status)
+      )
+
+      if (!hasPending || count > 40) { // 延长轮询时间到2分钟
+        clearInterval(timer)
+        timer = null
+      }
+    } catch (e) {
+      console.error('Polling error', e)
+      clearInterval(timer)
+      timer = null
+    }
+  }, 3000)
+}
+
 const handleReprocess = async (row: any) => {
   reprocessingId.value = row.id
-
-  // 对于已经成功的任务，给一个二次确认，防止误操作
   if (row.status === 'success') {
     try {
       await ElMessageBox.confirm(
@@ -160,86 +219,91 @@ const handleReprocess = async (row: any) => {
       return
     }
   }
-
   try {
     await axios.post(`/knowledge/${row.id}/reprocess`)
     ElMessage.success('已清理旧数据，后台正在重新解析...')
-
-    // 乐观更新状态，让用户立即看到变化
     row.status = 'pending'
     row.error_msg = ''
-
-    // 开启短期轮询检查状态
     startPolling()
   } catch (e: any) {
-    ElMessage.error(e.response?.data?.detail || '重试失败，请检查模型配置')
+    ElMessage.error(e.response?.data?.detail || '重试失败')
   } finally {
     reprocessingId.value = null
   }
 }
 
-// 3. 删除文件
 const handleDelete = async (row: any) => {
   try {
-    // 假设后端有 DELETE 接口，如果没有请确保后端已实现
-    // 如果没有 delete 接口，可以暂时隐藏或报错
     await axios.delete(`/knowledge/${row.id}`)
     ElMessage.success('删除成功')
-    fetchList()
+    fetchList(true)
   } catch (e: any) {
     ElMessage.error('删除失败')
   }
 }
 
-// 4. 上传回调
 const beforeUpload = () => {
+  if (uploading.value) return false
+  uploading.value = true
   ElMessage.info('正在上传文件...')
   return true
 }
 
 const handleSuccess = (response: any) => {
-  // 后端返回 {status: "success", id: ...}
+  uploading.value = false
   if (response.status === 'success' || response.id) {
     ElMessage.success('上传成功，开始后台解析')
-    fetchList()
-    startPolling() // 上传后自动开启轮询
+    // 强制立即刷新一次
+    fetchList(true).then(() => {
+        startPolling()
+    })
   } else {
     ElMessage.warning('上传响应异常')
   }
 }
 
 const handleUploadError = (err: any) => {
-  ElMessage.error('上传失败，请检查网络或文件大小')
-  console.error(err)
+  uploading.value = false
+  let errorMsg = '上传失败'
+  if (err.message) {
+    try {
+      const parsed = JSON.parse(err.message)
+      if (parsed.detail) errorMsg = parsed.detail
+    } catch (e) { console.log(e) }
+  }
+  ElMessage.error(errorMsg)
 }
 
-// 5. 工具函数
 const formatDate = (str: string) => dayjs(str).format('YYYY-MM-DD HH:mm')
+const getFileName = (path: string) => {
+  if (!path) return '未知来源'
+  return path.split(/[/\\]/).pop() || path
+}
 
-// 6. 轮询机制 (用于自动更新 pending 状态)
-const startPolling = () => {
-  if (timer) clearInterval(timer)
-  let count = 0
+const openSearchDialog = () => {
+  searchDialogVisible.value = true
+  searchResults.value = []
+  searchQuery.value = ''
+}
 
-  timer = setInterval(async () => {
-    count++
-    // 静默刷新列表数据
-    const res = await axios.get('/knowledge/list')
-    list.value = res.data
-
-    // 检查是否还有 pending 的任务
-    const hasPending = list.value.some((item: any) => item.status === 'pending')
-
-    // 如果没有 pending 任务了，或者轮询超过 20 次 (约1分钟)，停止轮询
-    if (!hasPending || count > 20) {
-      clearInterval(timer)
-      timer = null
-    }
-  }, 3000) // 每3秒刷新一次
+const handleSearch = async () => {
+  if (!searchQuery.value.trim()) return
+  searching.value = true
+  try {
+    const res = await axios.post('/knowledge/search', {
+      query: searchQuery.value,
+      top_k: 4
+    })
+    searchResults.value = res.data.results
+  } catch (e: any) {
+    ElMessage.error(e.response?.data?.detail || '检索失败')
+  } finally {
+    searching.value = false
+  }
 }
 
 onMounted(() => {
-  fetchList()
+  fetchList(true)
 })
 
 onUnmounted(() => {
@@ -248,79 +312,25 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.page-container {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding-top: 20px;
-}
+/* 保持样式不变 */
+.page-container { max-width: 1200px; margin: 0 auto; padding-top: 20px; }
+.toolbar-card { background: #fff; padding: 16px 24px; border-radius: 12px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+.title-section { display: flex; flex-direction: column; }
+.title { font-size: 18px; font-weight: 600; color: #1f2937; }
+.subtitle { font-size: 12px; color: #9ca3af; margin-top: 4px; }
+.table-card { border-radius: 12px; border: none; box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
+.file-info { display: flex; align-items: center; gap: 8px; }
+.file-icon { color: #6b7280; font-size: 16px; }
+.file-name { font-weight: 500; color: #374151; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.error-text { color: #ef4444; font-size: 12px; cursor: help; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; max-width: 100%; }
+.text-gray { color: #d1d5db; }
+.chunk-count { font-weight: bold; color: #10b981; }
 
-.toolbar-card {
-  background: #fff;
-  padding: 16px 24px;
-  border-radius: 12px;
-  margin-bottom: 16px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-}
-
-.title-section {
-  display: flex;
-  flex-direction: column;
-}
-.title {
-  font-size: 18px;
-  font-weight: 600;
-  color: #1f2937;
-}
-.subtitle {
-  font-size: 12px;
-  color: #9ca3af;
-  margin-top: 4px;
-}
-
-.table-card {
-  border-radius: 12px;
-  border: none;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
-}
-
-/* 文件名样式 */
-.file-info {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.file-icon {
-  color: #6b7280;
-  font-size: 16px;
-}
-.file-name {
-  font-weight: 500;
-  color: #374151;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* 错误文字样式 */
-.error-text {
-  color: #ef4444;
-  font-size: 12px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  display: block;
-  max-width: 100%;
-  cursor: help;
-}
-.text-gray {
-  color: #d1d5db;
-}
-
-.chunk-count {
-  font-weight: bold;
-  color: #10b981;
-}
+.search-box { margin-bottom: 20px; }
+.search-results { max-height: 400px; overflow-y: auto; padding-right: 4px; }
+.result-list { display: flex; flex-direction: column; gap: 12px; }
+.result-item { background: #f9fafb; border-radius: 8px; padding: 12px; border: 1px solid #e5e7eb; }
+.result-meta { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 12px; color: #6b7280; }
+.source-file { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.result-content { font-size: 13px; line-height: 1.6; color: #374151; white-space: pre-wrap; word-break: break-all; }
 </style>
