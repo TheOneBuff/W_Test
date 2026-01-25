@@ -1,23 +1,40 @@
-fastapi
-uvicorn
-sqlalchemy
-pymysql
-celery
-redis
+# --- 基础 Web 框架 ---
+fastapi==0.109.0
+uvicorn==0.27.0
 python-multipart
-python-jose[cryptography]
-passlib[bcrypt]
-# --- 核心修复 ---
-bcrypt==4.0.1
-# ----------------
+sqlalchemy==2.0.25
+pymysql
+pydantic==2.5.3
+pydantic-settings
 requests
-APScheduler==3.10.4
+
+# --- 异步与任务队列 ---
+celery==5.3.6
+redis==5.0.1
+APScheduler==3.10.4  # 用于定时任务
+
+# --- RAG 与 AI 核心 (LangChain 生态) ---
 langchain==0.1.0
 langchain-community==0.0.10
 langchain-openai==0.0.2
 chromadb==0.4.22
-pypdf==3.17.4
-python-docx==1.1.0
-pandas==2.1.4
-openpyxl==3.1.2
-tiktoken==0.5.2
+tiktoken==0.5.2      # OpenAI 计算 token 必须
+openai               # 基础 SDK (通常由 langchain-openai 自动安装，但显式写出更稳妥)
+
+# --- 文档与数据解析 ---
+pypdf==3.17.4        # PDF 解析
+python-docx==1.1.0   # Word 生成/读取
+docx2txt             # LangChain 加载 Word 有时依赖此库
+pandas==2.2.0        # 数据处理
+openpyxl==3.1.2      # Excel 读取/写入 (.xlsx)
+xlrd                 # Excel 读取 (.xls)
+xlsxwriter           # Excel 写入引擎 (修复导出报错必须)
+
+# --- 认证与加密 (关键修复) ---
+python-dotenv
+python-jose[cryptography]
+passlib[bcrypt]
+bcrypt==4.0.1        # 锁定版本以解决常见的 passlib 依赖报错
+
+# --- 其他工具 ---
+python-dateutil      # 时间处理标准库

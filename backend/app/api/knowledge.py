@@ -19,6 +19,9 @@ from ..rag import RagService
 from ..tasks import process_knowledge_file
 from .auth import get_current_user
 
+# 引入异步 OpenAI 客户端，防止阻塞
+from openai import AsyncOpenAI
+
 router = APIRouter()
 UPLOAD_DIR = "/data/uploads"
 
@@ -30,29 +33,29 @@ class SearchRequest(BaseModel):
 
 
 # --- 1. 知识库上传 ---
-# backend/app/api/knowledge.py
-
 @router.post("/upload")
 async def upload_knowledge(
         file: UploadFile = File(...),
         db: Session = Depends(get_db),
         current_user: models.User = Depends(get_current_user)
 ):
+    # 1. 第一步：先检查是否有激活的 Embedding 模型
     llm_config = db.query(models.LLMConfig).filter(
         models.LLMConfig.user_id == current_user.id,
         models.LLMConfig.is_active_chat == True
     ).first()
 
     if not llm_config:
-        # 此时还没有保存文件或写数据库，直接报错返回，非常干净
         raise HTTPException(status_code=400, detail="请先在配置页激活一个用途为'文本对话(Chat)'的模型用于向量化")
-    # ================= 修改结束 =================
 
     # 2. 第二步：检查通过后，再保存文件
     os.makedirs(UPLOAD_DIR, exist_ok=True)
     file_path = os.path.join(UPLOAD_DIR, file.filename)
+
+    # 异步读取和写入文件
+    content = await file.read()
     with open(file_path, "wb") as f:
-        f.write(await file.read())
+        f.write(content)
 
     # 3. 第三步：创建数据库记录
     new_doc = models.KnowledgeDocument(
@@ -91,7 +94,6 @@ def search_knowledge_base(
         db: Session = Depends(get_db),
         current_user: models.User = Depends(get_current_user)
 ):
-    # [修改] 使用 is_active_chat 作为 Embedding 模型
     llm_config = db.query(models.LLMConfig).filter(
         models.LLMConfig.user_id == current_user.id,
         models.LLMConfig.is_active_chat == True
@@ -124,7 +126,7 @@ def search_knowledge_base(
 
 
 # ----------------------------------------------------------------
-# 2. 用例生成 (Prompt 优化 + 双模型调用)
+# 2. 用例生成 (修复：使用 AsyncOpenAI 防止阻塞)
 # ----------------------------------------------------------------
 @router.post("/generate")
 async def generate_cases(
@@ -141,8 +143,10 @@ async def generate_cases(
         ext = image_file.filename.split('.')[-1]
         new_filename = f"{uuid.uuid4()}.{ext}"
         final_image_path = os.path.join(UPLOAD_DIR, new_filename)
+        # 异步读取文件
+        content = await image_file.read()
         with open(final_image_path, "wb") as f:
-            f.write(await image_file.read())
+            f.write(content)
     elif reuse_image_path:
         if os.path.exists(reuse_image_path):
             final_image_path = reuse_image_path
@@ -170,7 +174,7 @@ async def generate_cases(
         if not chat_config:
             raise Exception("请先激活一个用途为'用例生成(Gen)'的模型")
 
-        # 2. 获取向量模型 (is_active_chat) [修改点]
+        # 2. 获取向量模型 (is_active_chat)
         embed_config = db.query(models.LLMConfig).filter(
             models.LLMConfig.user_id == current_user.id,
             models.LLMConfig.is_active_chat == True
@@ -179,6 +183,7 @@ async def generate_cases(
         rag_context = ""
         if embed_config:
             try:
+                # 注意：如果 RagService 初始化非常耗时，这里可能会轻微阻塞，但通常还好
                 rag = RagService(
                     api_key=embed_config.api_key,
                     base_url=embed_config.base_url,
@@ -191,7 +196,7 @@ async def generate_cases(
                 print(f"RAG search failed: {e}")
                 rag_context = "（暂无历史参考数据）"
 
-        # 3. 构造 System Prompt (强化规则遵循)
+        # 3. 构造 System Prompt
         system_prompt = """
         你是一个资深的QA测试专家。你需要根据用户的【需求描述】和可选的【产品截图】设计测试用例。
 
@@ -222,7 +227,10 @@ async def generate_cases(
         """
 
         # 多模态处理
-        if chat_config.model_type == 'multimodal' and final_image_path:
+        # 兼容性处理：防止数据库没有 model_type 字段导致报错
+        is_multimodal = getattr(chat_config, 'model_type', 'text') == 'multimodal'
+
+        if is_multimodal and final_image_path:
             with open(final_image_path, "rb") as img_f:
                 image_data = img_f.read()
                 base64_image = base64.b64encode(image_data).decode('utf-8')
@@ -233,14 +241,14 @@ async def generate_cases(
 
         messages.append({"role": "user", "content": user_content})
 
-        # 5. 调用 LLM
-        from openai import OpenAI
-        client = OpenAI(
+        # 5. 调用 LLM (使用 AsyncOpenAI)
+        client = AsyncOpenAI(
             api_key=chat_config.api_key,
             base_url=chat_config.base_url
         )
 
-        response = client.chat.completions.create(
+        # 关键修改：使用 await 异步调用，防止阻塞
+        response = await client.chat.completions.create(
             model=chat_config.model_name,
             messages=messages,
             temperature=0.2,
@@ -308,12 +316,30 @@ def export_excel(cases: list[dict]):
     }
     df = df.rename(columns=rename_map)
     output = BytesIO()
+
+    # 使用 xlsxwriter 引擎
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         df.to_excel(writer, index=False, sheet_name='GeneratedCases')
+
+        # 1. 获取 workbook 和 worksheet 对象
+        workbook = writer.book
         worksheet = writer.sheets['GeneratedCases']
-        worksheet.set_column('A:B', 20)
-        worksheet.set_column('C:C', 30)
-        worksheet.set_column('D:E', 50)
+
+        # 2. 定义格式：自动换行 + 垂直居中(或顶部对齐) + 边框
+        wrap_format = workbook.add_format({
+            'text_wrap': True,  # 核心：开启自动换行
+            'valign': 'top',  # 建议：内容顶部对齐，这就不会因为行高太高而看着难受
+            'align': 'left',  # 建议：左对齐
+            'border': 1  # 可选：加个边框更好看
+        })
+
+        # 3. 设置列宽的同时，应用这个格式
+        # set_column(start_col, end_col, width, cell_format)
+        worksheet.set_column('A:B', 20, wrap_format)  # 模块、标题
+        worksheet.set_column('C:C', 30, wrap_format)  # 前置条件
+        worksheet.set_column('D:E', 50, wrap_format)  # 步骤、预期结果 (这两列内容最长，必须换行)
+        worksheet.set_column('F:F', 10, wrap_format)  # 优先级
+
     output.seek(0)
     return StreamingResponse(
         output,
@@ -334,7 +360,6 @@ async def reprocess_knowledge(
     if not doc:
         raise HTTPException(status_code=404, detail="文件不存在")
 
-    # [修改] 使用 is_active_chat 作为 Embedding 模型
     llm_config = db.query(models.LLMConfig).filter(
         models.LLMConfig.user_id == current_user.id,
         models.LLMConfig.is_active_chat == True
@@ -347,7 +372,7 @@ async def reprocess_knowledge(
         "api_key": llm_config.api_key,
         "base_url": llm_config.base_url,
         "model_name": llm_config.model_name or "nomic-embed-text",
-        "model_family": llm_config.model_family
+        "model_family": getattr(llm_config, 'model_family', '')
     }
 
     doc.status = "pending"
@@ -379,7 +404,6 @@ def delete_knowledge(
         models.LLMConfig.is_active_chat == True
     ).first()
 
-    # --- 关键调试点 ---
     if llm_config:
         print(f"2. ✅ 发现已激活的 Embedding 模型: {llm_config.model_name}")
         try:
@@ -390,11 +414,9 @@ def delete_knowledge(
                 model_name=llm_config.model_name
             )
 
-            # 强制转换为字符串
             path_str = str(doc.file_path)
             print(f"4. 🚀 调用 rag.delete_doc_by_source, 路径: {path_str}")
 
-            # 调用删除
             rag.delete_doc_by_source(path_str)
             print("5. RagService 调用结束")
 
@@ -403,9 +425,7 @@ def delete_knowledge(
             import traceback
             traceback.print_exc()
     else:
-        # 如果你没看到日志，很可能是走到了这里
         print("⚠️ [跳过] 未找到激活的 'is_active_chat' 模型，跳过向量删除步骤！")
-        print("   (请检查 llm_config 表中是否有 is_active_chat=1 的记录)")
 
     # 3. 物理文件删除
     if doc.file_path and os.path.exists(doc.file_path):

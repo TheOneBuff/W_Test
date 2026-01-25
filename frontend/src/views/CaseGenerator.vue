@@ -3,16 +3,28 @@
     <div class="left-panel">
       <div class="panel-card">
         <div class="panel-header">
-          <span class="title">需求录入</span>
-          <el-tag
-            size="small"
-            :type="currentModel ? (isMultimodal ? 'success' : 'warning') : 'danger'"
-            effect="dark"
-          >
-            <el-icon v-if="!currentModel"><WarnTriangleFilled /></el-icon>
-            <span v-else>
-              {{ currentModel.name }} ({{ isMultimodal ? '多模态' : '纯文本' }})
-            </span>
+          <span class="title">智能用例生成</span>
+
+          <el-tag :type="modelStatus.type" effect="dark" class="status-tag">
+            <div class="tag-content">
+              <template v-if="modelStatus.code === 'error'">
+                <el-icon><CircleCloseFilled /></el-icon>
+                <span>生成服务不可用 (is_active_gen=0)</span>
+              </template>
+
+              <template v-else>
+                <el-icon v-if="modelStatus.code === 'success'"><CircleCheckFilled /></el-icon>
+                <el-icon v-else><WarnTriangleFilled /></el-icon>
+
+                <span>
+                  {{ currentGenModel?.name }}
+                  <span class="sub-text">
+                    | {{ isMultimodal ? '多模态' : '纯文本' }}
+                    | {{ hasChatModel ? '检索✅' : '无检索⚠️' }}
+                  </span>
+                </span>
+              </template>
+            </div>
           </el-tag>
         </div>
 
@@ -21,38 +33,49 @@
             v-model="requirement"
             type="textarea"
             :rows="12"
-            placeholder="请输入详细的需求描述，例如：
-1. 登录模块：手机号必须11位...
-2. 订单模块：金额计算规则..."
+            placeholder="请输入详细的测试需求，例如：
+1. 登录模块：验证手机号格式、验证码超时逻辑...
+2. 支付模块：余额不足时的提示..."
             resize="none"
             class="req-input"
           />
 
           <div class="upload-section">
             <div class="upload-header">
-              <span>参考图片 (可选)</span>
-              <span v-if="!isMultimodal && currentModel" class="unsupported-tip">
-                * 当前模型不支持识图，图片将被忽略
-              </span>
+              <span>参考图片 (UI/原型图)</span>
             </div>
 
-            <el-upload
-              action="#"
-              ref="uploadRef"
-              :file-list="fileList"
-              :auto-upload="false"
-              :on-change="handleFileChange"
-              :on-remove="handleFileRemove"
-              :limit="1"
-              list-type="picture-card"
-              accept=".jpg,.jpeg,.png"
-              :class="{ 'hide-upload-btn': fileList.length >= 1 }"
-            >
-              <el-icon><Plus /></el-icon>
-            </el-upload>
-            <div class="upload-desc" v-if="isMultimodal">
-              上传图片后，AI 将结合图片内容设计用例
-            </div>
+            <template v-if="isMultimodal">
+              <el-upload
+                action="#"
+                ref="uploadRef"
+                :file-list="fileList"
+                :auto-upload="false"
+                :on-change="handleFileChange"
+                :on-remove="handleFileRemove"
+                :limit="1"
+                list-type="picture-card"
+                accept=".jpg,.jpeg,.png"
+                :class="{ 'hide-upload-btn': fileList.length >= 1 }"
+              >
+                <el-icon><Plus /></el-icon>
+              </el-upload>
+
+              <div class="upload-desc">
+                <span v-if="reusedImagePath" class="reuse-tag">已复用历史图片</span>
+                <span v-else>当前使用 <b>{{ currentGenModel?.name }}</b>，支持视觉分析</span>
+              </div>
+            </template>
+
+            <template v-else>
+              <div class="unsupported-box">
+                <el-icon class="icon"><Warning /></el-icon>
+                <div class="text">
+                  当前模型仅支持纯文本<br>
+                  <span class="sub">如需传图，请在配置页激活 Multimodal 模型</span>
+                </div>
+              </div>
+            </template>
           </div>
 
           <div class="actions">
@@ -62,9 +85,9 @@
               @click="handleSubmit"
               :loading="submitting"
               :icon="MagicStick"
-              :disabled="!currentModel"
+              :disabled="!currentGenModel"
             >
-              {{ submitting ? '正在生成中(请稍候)...' : '提交生成任务' }}
+              {{ submitting ? 'AI 正在生成中...' : '提交生成任务' }}
             </el-button>
           </div>
         </div>
@@ -74,7 +97,7 @@
     <div class="right-panel">
       <div class="panel-card">
         <div class="panel-header">
-          <span class="title">生成历史记录</span>
+          <span class="title">任务历史</span>
           <el-button :icon="Refresh" circle size="small" @click="fetchRecords" title="刷新列表" />
         </div>
 
@@ -84,45 +107,64 @@
             stripe
             height="100%"
             v-loading="loadingRecords"
-            element-loading-text="加载历史记录..."
+            element-loading-text="加载中..."
           >
             <el-table-column prop="id" label="ID" width="60" align="center" />
-            <el-table-column label="需求摘要" min-width="180">
+
+            <el-table-column label="需求摘要" min-width="150">
               <template #default="{ row }">
                 <div class="text-truncate" :title="row.requirement">{{ row.requirement }}</div>
               </template>
             </el-table-column>
+
             <el-table-column label="图片" width="70" align="center">
               <template #default="{ row }">
                 <el-image
                   v-if="row.image_path"
-                  style="width: 30px; height: 30px"
+                  style="width: 36px; height: 36px; border-radius: 4px"
                   :src="getImageUrl(row.image_path)"
                   :preview-src-list="[getImageUrl(row.image_path)]"
                   preview-teleported
+                  fit="cover"
                 />
                 <span v-else class="text-gray">-</span>
               </template>
             </el-table-column>
-            <el-table-column label="状态" width="100" align="center">
+
+            <el-table-column label="状态" width="90" align="center">
               <template #default="{ row }">
                 <el-tag v-if="row.status==='success'" type="success" size="small" effect="light">成功</el-tag>
                 <el-tag v-else-if="row.status==='processing'" type="primary" size="small" effect="light">生成中</el-tag>
                 <el-tag v-else-if="row.status==='failed'" type="danger" size="small" effect="light">失败</el-tag>
-                <el-tag v-else type="info" size="small">排队</el-tag>
+                <el-tag v-else type="info" size="small">等待</el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="创建时间" width="140" align="center">
+
+            <el-table-column label="时间" width="120" align="center">
               <template #default="{ row }">
                 <span class="time-text">{{ formatDate(row.create_time) }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="140" align="center" fixed="right">
+
+            <el-table-column label="操作" width="130" align="center" fixed="right">
               <template #default="{ row }">
-                <el-button v-if="row.status === 'success'" type="primary" link @click="goToDetail(row.id)">详情</el-button>
-                <el-popover v-if="row.status === 'failed'" :content="row.error_msg" trigger="hover" width="200">
-                   <template #reference><el-button type="danger" link>原因</el-button></template>
+                <el-button
+                  v-if="row.status === 'success'"
+                  type="primary" link
+                  @click="goToDetail(row.id)"
+                >详情</el-button>
+
+                <el-popover
+                  v-if="row.status === 'failed'"
+                  :content="row.error_msg || '未知错误'"
+                  trigger="hover"
+                  width="200"
+                >
+                   <template #reference>
+                     <el-button type="danger" link>原因</el-button>
+                   </template>
                 </el-popover>
+
                 <el-button type="primary" link @click="handleReuse(row)">复用</el-button>
               </template>
             </el-table-column>
@@ -137,120 +179,132 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from '@/utils/request'
-import { Picture, Plus, MagicStick, WarnTriangleFilled, Refresh } from '@element-plus/icons-vue'
+import {
+  Picture, Plus, MagicStick, Refresh, Warning,
+  WarnTriangleFilled, CircleCloseFilled, CircleCheckFilled
+} from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import dayjs from 'dayjs'
 
 const router = useRouter()
+
+// --- 状态变量 ---
 const requirement = ref('')
 const submitting = ref(false)
 const loadingRecords = ref(false)
 const records = ref<any[]>([])
 const fileList = ref<any[]>([])
-const currentModel = ref<any>(null)
 
-// [新增] 用于存储复用的图片后端路径
-const reusedImagePath = ref('')
+// 模型状态
+const currentGenModel = ref<any>(null) // 生成模型
+const hasChatModel = ref(false)        // 检索模型
+const reusedImagePath = ref('')        // 复用的图片路径
 
-const isMultimodal = computed(() => currentModel.value?.model_type === 'multimodal')
+// --- 计算属性 ---
 
-// [新增] 图片路径转换工具
-const getImageUrl = (dbPath: string) => {
-  if (!dbPath) return ''
-  // 假设后端存的是 /app/uploads/xxx.jpg，替换为 Nginx 代理的 /uploads/xxx.jpg
-  return dbPath.replace('/app/uploads', '/uploads')
-}
+// [逻辑1] 判断是否多模态 (支持图片)
+// 规则：model_type == 'multimodal' 或者 名字里包含 'vl' (适配 qwen3-vl)
+const isMultimodal = computed(() => {
+  if (!currentGenModel.value) return false
+  const type = currentGenModel.value.model_type?.toLowerCase()
+  const name = currentGenModel.value.model_name?.toLowerCase()
+  return type === 'multimodal' || (name && name.includes('vl'))
+})
 
-// 1. 获取模型
+// [逻辑2] 整体系统状态颜色
+const modelStatus = computed(() => {
+  if (!currentGenModel.value) {
+    return { type: 'danger', code: 'error' } // 红：无法生成
+  }
+  if (!hasChatModel.value) {
+    return { type: 'warning', code: 'warning' } // 橙：无法检索
+  }
+  return { type: 'success', code: 'success' } // 绿：正常
+})
+
+// --- 方法 ---
+
+// 1. 获取模型配置
 const fetchActiveModel = async () => {
   try {
-    const res = await axios.get('/llm') // 请确认接口路径
+    const res = await axios.get('/llm')
     const configs = res.data || []
-    const activeGenModel = configs.find((item: any) => item.is_active === true && item.use_for === 'generation')
-    currentModel.value = activeGenModel || null
-    if (!activeGenModel) ElMessage.warning('未检测到激活的生成模型')
+
+    // 筛选 is_active_gen = 1
+    const activeGen = configs.find((item: any) => item.is_active_gen === true)
+
+    // 筛选 is_active_chat = 1
+    const activeChat = configs.find((item: any) => item.is_active_chat === true)
+
+    currentGenModel.value = activeGen || null
+    hasChatModel.value = !!activeChat
+
+    // 检查并清理复用状态：如果切换到了纯文本模型，必须清空已选择的图片
+    if (!isMultimodal.value) {
+      fileList.value = []
+      reusedImagePath.value = ''
+    }
+
+    // 提示
+    if (!activeGen) ElMessage.error('未检测到激活的生成模型 (is_active_gen=1)')
+    else if (!activeChat) ElMessage.warning('未检测到激活的检索模型 (is_active_chat=1)')
+
   } catch (e) {
     console.error(e)
+    ElMessage.error('模型配置获取失败')
   }
 }
 
-// 2. 获取记录
-const fetchRecords = async () => {
-  loadingRecords.value = true
-  try {
-    const res = await axios.get('/knowledge/records')
-    records.value = res.data
-  } catch (e) {
-    console.error(e)
-  } finally {
-    loadingRecords.value = false
-  }
-}
-
-// 3. [修改] 提交逻辑
+// 2. 提交任务
 const handleSubmit = async () => {
-  if (!currentModel.value) return ElMessage.error('请先激活模型')
-
-  // 校验：有文字 OR 有新图 OR 有复用图
-  const hasText = requirement.value.trim().length > 0
-  const hasNewImg = fileList.value.length > 0 && fileList.value[0].raw
-  const hasReuseImg = !!reusedImagePath.value
-
-  console.log('提交状态:', { hasText, hasNewImg, hasReuseImg, reusePath: reusedImagePath.value })
-
-  if (!hasText && !hasNewImg && !hasReuseImg) {
-    return ElMessage.warning('请输入需求描述，或上传参考图片')
-  }
+  if (!currentGenModel.value) return ElMessage.error('服务不可用')
+  if (!requirement.value.trim()) return ElMessage.warning('请输入需求描述')
 
   submitting.value = true
+  const formData = new FormData()
+  formData.append('requirement', requirement.value)
 
-  try {
-    const formData = new FormData()
-    formData.append('requirement', requirement.value)
-
-    // 逻辑：优先使用新上传的文件
+  // 图片逻辑：只有多模态才允许传图
+  if (isMultimodal.value) {
     if (fileList.value.length > 0 && fileList.value[0].raw) {
       formData.append('image_file', fileList.value[0].raw)
-    }
-    // 如果没有新文件，但有复用路径，传路径
-    else if (reusedImagePath.value) {
+    } else if (reusedImagePath.value) {
       formData.append('reuse_image_path', reusedImagePath.value)
     }
+  }
 
+  try {
     const res = await axios.post('/knowledge/generate', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
       timeout: 600000
     })
 
     if (res.data.status === 'success') {
-      ElMessage.success('任务提交成功')
+      ElMessage.success('任务已提交')
       requirement.value = ''
       fileList.value = []
-      reusedImagePath.value = '' // 清空复用状态
+      reusedImagePath.value = ''
       await fetchRecords()
     } else {
-      ElMessage.error('提交异常')
+      ElMessage.error(res.data.msg || '提交失败')
     }
   } catch (e: any) {
-    ElMessage.error(e.response?.data?.detail || '服务异常')
+    ElMessage.error(e.response?.data?.detail || '网络异常')
   } finally {
     submitting.value = false
   }
 }
 
-// 4. [修改] 复用逻辑
+// 3. 历史记录复用
 const handleReuse = (row: any) => {
-  // 回填文字
   requirement.value = row.requirement
 
-  // 回填图片
-  if (row.image_path) {
-    reusedImagePath.value = row.image_path // 1. 记录后端路径
-
-    // 2. 构造假文件对象用于显示 (注意：没有 raw 属性)
+  // 只有当前模型支持多模态，且历史记录里有图，才回填图片
+  if (isMultimodal.value && row.image_path) {
+    reusedImagePath.value = row.image_path
     fileList.value = [{
       name: '历史图片.jpg',
-      url: getImageUrl(row.image_path), // 用于预览
+      url: getImageUrl(row.image_path),
       status: 'success',
       uid: Date.now()
     }]
@@ -258,30 +312,37 @@ const handleReuse = (row: any) => {
     reusedImagePath.value = ''
     fileList.value = []
   }
-
-  ElMessage.success('需求与图片已回填')
+  ElMessage.success('内容已回填')
 }
 
-// 5. [修改] 文件状态变更
-const handleFileChange = (file: any) => {
-  // 核心逻辑：只有当文件包含 raw 属性时，才代表是用户手动选择的本地文件
-  // 代码回填的图片对象只有 url，没有 raw
-  if (file.raw) {
-    console.log('用户选择了新文件:', file.name)
-    reusedImagePath.value = '' // 用户选了新图，清空复用路径
-    fileList.value = [file]    // 限制单选
-  } else {
-     console.log('检测到图片回填，保持复用路径不变')
+// 工具函数
+const getImageUrl = (dbPath: string) => {
+  if (!dbPath) return ''
+  return dbPath.replace('/app/uploads', '/uploads').replace('/data/uploads', '/uploads')
+}
+
+const fetchRecords = async () => {
+  loadingRecords.value = true
+  try {
+    const res = await axios.get('/knowledge/records')
+    records.value = res.data
+  } finally {
+    loadingRecords.value = false
   }
 }
 
+const handleFileChange = (file: any) => {
+  if (file.raw) {
+    reusedImagePath.value = ''
+    fileList.value = [file]
+  }
+}
 const handleFileRemove = () => {
   reusedImagePath.value = ''
   fileList.value = []
 }
-
-const goToDetail = (id: number) => { router.push(`/testcase/result/${id}`) }
-const formatDate = (str: string) => dayjs(str).format('MM-DD HH:mm')
+const goToDetail = (id: number) => router.push(`/testcase/result/${id}`)
+const formatDate = (str: string) => str ? dayjs(str).format('MM-DD HH:mm') : '-'
 
 onMounted(() => {
   fetchActiveModel()
@@ -290,23 +351,86 @@ onMounted(() => {
 </script>
 
 <style scoped>
-/* 保持原有样式不变 */
-.gen-container { display: flex; gap: 16px; height: calc(100vh - 84px); padding: 16px; background-color: #f5f7fa; box-sizing: border-box; }
-.left-panel { width: 400px; flex-shrink: 0; display: flex; flex-direction: column; }
+.gen-container {
+  display: flex;
+  gap: 16px;
+  height: calc(100vh - 84px);
+  padding: 16px;
+  background-color: #f5f7fa;
+  box-sizing: border-box;
+}
+
+.left-panel { width: 420px; flex-shrink: 0; display: flex; flex-direction: column; }
 .right-panel { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-.panel-card { background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); display: flex; flex-direction: column; height: 100%; }
-.panel-header { padding: 12px 20px; border-bottom: 1px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
-.title { font-weight: 600; font-size: 15px; color: #1f2937; }
+
+.panel-card {
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* 头部样式优化，防止遮挡 */
+.panel-header {
+  padding: 12px 20px;
+  border-bottom: 1px solid #f0f0f0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 10px;
+}
+.title { font-weight: 600; font-size: 15px; color: #1f2937; white-space: nowrap; }
+
+.status-tag {
+  height: auto !important; /* 关键：高度自适应 */
+  padding: 6px 10px;
+  max-width: 75%;
+  flex-shrink: 0; /* 关键：不被挤压 */
+}
+.tag-content {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: normal; /* 关键：允许换行 */
+  line-height: 1.2;
+}
+.sub-text { font-size: 11px; opacity: 0.85; margin-left: 4px; }
+
 .panel-body { padding: 20px; flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 20px; }
 .table-body { padding: 0; }
+
 .req-input :deep(.el-textarea__inner) { padding: 12px; font-size: 14px; }
-.upload-section { background: #fafafa; border: 1px dashed #d9d9d9; border-radius: 6px; padding: 16px; position: relative; }
-.upload-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; font-size: 13px; color: #606266; }
-.unsupported-tip { color: #e6a23c; font-size: 12px; }
+
+.upload-section { background: #fafafa; border: 1px dashed #d9d9d9; border-radius: 6px; padding: 16px; }
+.upload-header { margin-bottom: 12px; font-size: 13px; color: #606266; }
+.upload-desc { margin-top: 8px; font-size: 12px; color: #909399; }
+.reuse-tag { color: #409eff; background: #ecf5ff; padding: 2px 6px; border-radius: 4px; }
+
+/* 不支持上传时的样式 */
+.unsupported-box {
+  background: #fdf6ec;
+  border: 1px dashed #e6a23c;
+  border-radius: 6px;
+  padding: 15px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #e6a23c;
+  text-align: center;
+  height: 100px;
+}
+.unsupported-box .icon { font-size: 24px; margin-bottom: 8px; }
+.unsupported-box .text { font-size: 13px; line-height: 1.5; }
+.unsupported-box .sub { font-size: 11px; opacity: 0.8; }
+
 .generate-btn { width: 100%; height: 40px; font-size: 15px; letter-spacing: 1px; }
 .hide-upload-btn :deep(.el-upload--picture-card) { display: none; }
-.text-truncate { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #606266; }
-.time-text { font-size: 12px; color: #909399; }
+.text-truncate { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #606266; font-size: 13px; }
+.time-text { font-size: 12px; color: #909399; font-family: monospace; }
 .text-gray { color: #dcdfe6; }
-:deep(.el-table .cell) { padding: 8px 12px; }
+:deep(.el-table .cell) { padding: 8px 8px; }
 </style>

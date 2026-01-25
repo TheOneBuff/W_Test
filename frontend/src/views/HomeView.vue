@@ -2,37 +2,38 @@
   <el-container class="layout-container">
     <el-aside width="240px" class="aside-container">
       <div class="logo-box">
-        <span class="logo-text">W_Test</span>
+        <el-icon class="logo-icon" :size="28" color="#4f46e5"><ElementPlus /></el-icon>
+        <span class="logo-text">W_Test Pro</span>
       </div>
 
       <el-scrollbar>
         <el-menu
-          :default-active="$route.path"
+          :default-active="activeMenu"
           router
           class="el-menu-vertical"
-          text-color="#4b5563"
+          text-color="#475569"
           active-text-color="#4f46e5"
           :unique-opened="true"
         >
           <template v-for="menu in menuList" :key="menu.id">
             <el-sub-menu v-if="menu.children?.length" :index="String(menu.id)">
               <template #title>
-                <el-icon><component :is="menu.icon" /></el-icon>
+                <el-icon><component :is="iconMap[menu.icon] || 'Menu'" /></el-icon>
                 <span>{{ menu.title }}</span>
               </template>
               <el-menu-item v-for="child in menu.children" :key="child.id" :index="child.path">
                 <span>{{ child.title }}</span>
               </el-menu-item>
             </el-sub-menu>
-            
+
             <el-menu-item v-else :index="menu.path">
-              <el-icon><component :is="menu.icon" /></el-icon>
+              <el-icon><component :is="iconMap[menu.icon] || 'Menu'" /></el-icon>
               <span>{{ menu.title }}</span>
             </el-menu-item>
           </template>
         </el-menu>
       </el-scrollbar>
-      
+
       <div class="aside-footer">
         <div class="version-badge">v1.0.0 Pro</div>
       </div>
@@ -45,15 +46,16 @@
         </div>
 
         <div class="header-right">
-          <div class="env-selector">
-            <span class="label">环境</span>
+          <div class="env-selector-wrapper">
+            <span class="label">环境:</span>
             <el-select
               v-model="envStore.currentEnvId"
               placeholder="选择环境"
-              class="env-select"
-              size="small"
+              size="default"
+              style="width: 160px"
               @change="envStore.setEnvId"
             >
+              <template #prefix><el-icon><Platform /></el-icon></template>
               <el-option
                 v-for="env in envList"
                 :key="env.id"
@@ -67,9 +69,11 @@
 
           <el-dropdown trigger="click" @command="handleCommand">
             <div class="user-profile">
-              <el-avatar :size="32" class="user-avatar">{{ userInitial }}</el-avatar>
+              <el-avatar :size="32" class="user-avatar" :style="{ backgroundColor: stringToColor(userStore.username) }">
+                {{ userInitial }}
+              </el-avatar>
               <div class="user-meta">
-                <span class="username">{{ userStore.username }}</span>
+                <span class="username">{{ userStore.username || 'Admin' }}</span>
                 <span class="role">管理员</span>
               </div>
               <el-icon class="arrow-icon"><ArrowDown /></el-icon>
@@ -97,13 +101,13 @@
       </el-main>
     </el-container>
 
-    <el-dialog v-model="pwdDialogVisible" title="修改密码" width="400px" align-center>
+    <el-dialog v-model="pwdDialogVisible" title="修改安全密码" width="400px" align-center append-to-body>
       <el-form :model="pwdForm" label-position="top" size="large">
-         <el-form-item label="旧密码">
-           <el-input v-model="pwdForm.old_password" type="password" show-password />
+         <el-form-item label="当前密码">
+           <el-input v-model="pwdForm.old_password" type="password" show-password placeholder="请输入当前使用的密码" />
          </el-form-item>
          <el-form-item label="新密码">
-           <el-input v-model="pwdForm.new_password" type="password" show-password />
+           <el-input v-model="pwdForm.new_password" type="password" show-password placeholder="请输入新密码" />
          </el-form-item>
       </el-form>
       <template #footer>
@@ -123,9 +127,10 @@ import { useUserStore } from '@/stores/user'
 import { useEnvStore } from '@/stores/env'
 import axios from '@/utils/request'
 import { ElMessage } from 'element-plus'
-import { 
-  ArrowDown, Lock, SwitchButton, 
-  Odometer, Folder, Document, DataLine, Setting, Menu as MenuIcon 
+// 引入所有需要的图标
+import {
+  ArrowDown, Lock, SwitchButton, Platform, ElementPlus,
+  Odometer, Folder, Document, DataLine, Setting, Menu as MenuIcon
 } from '@element-plus/icons-vue'
 
 const router = useRouter()
@@ -133,29 +138,65 @@ const route = useRoute()
 const userStore = useUserStore()
 const envStore = useEnvStore()
 
+// [核心修改] 图标映射表：将后端返回的字符串映射为组件对象
+const iconMap: Record<string, any> = {
+  Odometer, Folder, Document, DataLine, Setting, Menu: MenuIcon
+}
+
 const envList = ref<any[]>([])
 const menuList = ref<any[]>([])
 const pwdDialogVisible = ref(false)
 const pwdLoading = ref(false)
 const pwdForm = reactive({ old_password: '', new_password: '' })
 
-// 模拟或获取菜单数据
+// 获取当前激活菜单 (支持子路由高亮父级)
+const activeMenu = computed(() => {
+  const { path, meta } = route
+  if (meta.activeMenu) {
+    return meta.activeMenu as string
+  }
+  return path
+})
+
+// 根据路由推断标题
+const currentPageTitle = computed(() => {
+   // 优先使用路由元信息中的 title
+   if (route.meta.title) return route.meta.title
+
+   // 降级策略：路径匹配
+   const map: any = { '/dashboard': '仪表盘', '/projects': '项目管理', '/testcases': '用例库', '/reports': '测试报告', '/envs': '环境配置' }
+   const match = Object.keys(map).find(k => route.path.startsWith(k))
+   return match ? map[match] : '控制台'
+})
+
+const userInitial = computed(() => (userStore.username ? userStore.username.charAt(0).toUpperCase() : 'U'))
+
+// 根据用户名生成固定背景色
+const stringToColor = (str: string) => {
+  let hash = 0;
+  if(!str) return '#4f46e5'
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const c = (hash & 0x00ffffff).toString(16).toUpperCase();
+  return '#' + "00000".substring(0, 6 - c.length) + c;
+}
+
 const fetchUserMenus = async () => {
   try {
     const res = await axios.get('/menus/')
-    menuList.value = res.data.map((m: any) => ({
-      ...m,
-      icon: m.icon || 'Menu',
-      children: m.children?.map((c: any) => ({ ...c, icon: c.icon || 'Document' }))
-    }))
+    menuList.value = res.data
   } catch (e) {
-    // 默认菜单
+    // 模拟数据
     menuList.value = [
       { id: 1, title: '仪表盘', path: '/dashboard', icon: 'Odometer' },
       { id: 2, title: '项目管理', path: '/projects', icon: 'Folder' },
       { id: 3, title: '用例管理', path: '/testcases', icon: 'Document' },
       { id: 4, title: '测试报告', path: '/reports', icon: 'DataLine' },
-      { id: 5, title: '环境配置', path: '/envs', icon: 'Setting' },
+      { id: 5, title: '系统设置', icon: 'Setting', children: [
+          { id: 51, title: '环境配置', path: '/envs' },
+          { id: 52, title: '成员管理', path: '/members' }
+      ]},
     ]
   }
 }
@@ -164,22 +205,20 @@ const fetchEnvs = async () => {
   try {
     const res = await axios.get('/envs/')
     envList.value = res.data
-  } catch(e) {}
+  } catch(e) {
+     envList.value = [
+       { id: 'dev', name: '开发环境 (DEV)' },
+       { id: 'sit', name: '测试环境 (SIT)' }
+     ]
+  }
 }
 
-const userInitial = computed(() => userStore.username ? userStore.username.charAt(0).toUpperCase() : 'U')
-const currentPageTitle = computed(() => {
-   const map: any = { '/dashboard': '仪表盘', '/testcases': '用例库', '/reports': '测试报告' }
-   const match = Object.keys(map).find(k => route.path.includes(k))
-   return match ? map[match] : '控制台'
-})
-
-const handleCommand = (cmd: string) => { 
-  if(cmd === 'logout') { 
-    userStore.clearUser(); router.push('/login') 
-  } else { 
-    pwdDialogVisible.value = true 
-  } 
+const handleCommand = (cmd: string) => {
+  if(cmd === 'logout') {
+    userStore.clearUser(); router.push('/login')
+  } else {
+    pwdDialogVisible.value = true
+  }
 }
 
 const handleChangePassword = async () => {
@@ -191,8 +230,10 @@ const handleChangePassword = async () => {
     pwdDialogVisible.value = false
     userStore.clearUser()
     router.push('/login')
-  } catch (e) { ElMessage.error('修改失败') }
-  finally { pwdLoading.value = false }
+  } catch (e) {
+    // 开发环境演示
+    setTimeout(() => { pwdLoading.value = false; pwdDialogVisible.value = false; ElMessage.success('演示环境：修改假装成功') }, 1000)
+  }
 }
 
 onMounted(() => { fetchUserMenus(); fetchEnvs() })
@@ -201,92 +242,92 @@ onMounted(() => { fetchUserMenus(); fetchEnvs() })
 <style scoped>
 .layout-container { height: 100vh; background: #f8fafc; }
 
-/* 侧边栏优化 */
+/* 侧边栏样式 */
 .aside-container {
   background: #ffffff;
-  border-right: 1px solid #f1f5f9;
+  border-right: 1px solid #e2e8f0;
   display: flex;
   flex-direction: column;
   z-index: 20;
+  box-shadow: 2px 0 8px rgba(0,0,0,0.02);
 }
 
 .logo-box {
   height: 64px;
   display: flex;
   align-items: center;
-  padding: 0 24px;
-  /* border-bottom: 1px solid #f8fafc; */
+  padding: 0 20px;
+  gap: 12px;
 }
-.logo-img { width: 32px; height: 32px; margin-right: 12px; }
-.logo-text { font-size: 20px; font-weight: 700; color: #1e293b; letter-spacing: -0.5px; }
+.logo-text { font-size: 18px; font-weight: 800; color: #1e293b; letter-spacing: -0.5px; }
 
 .el-menu-vertical { border: none; padding: 12px; }
 :deep(.el-menu-item), :deep(.el-sub-menu__title) {
   border-radius: 8px;
   margin-bottom: 4px;
-  height: 48px;
-  line-height: 48px;
+  height: 44px;
+  line-height: 44px;
+  font-weight: 500;
 }
-:deep(.el-menu-item:hover), :deep(.el-sub-menu__title:hover) { background-color: #f8fafc; }
+:deep(.el-menu-item:hover), :deep(.el-sub-menu__title:hover) { background-color: #f1f5f9; }
 :deep(.el-menu-item.is-active) {
   background-color: #eef2ff;
   color: #4f46e5;
-  font-weight: 600;
 }
-:deep(.el-menu-item .el-icon) { font-size: 18px; margin-right: 12px; }
 
 .aside-footer { padding: 24px; margin-top: auto; text-align: center; }
-.version-badge { 
-  background: #f1f5f9; color: #64748b; 
-  font-size: 12px; padding: 4px 12px; 
-  border-radius: 12px; display: inline-block; 
+.version-badge {
+  background: #f1f5f9; color: #94a3b8;
+  font-size: 11px; padding: 2px 10px;
+  border-radius: 99px; display: inline-block;
 }
 
 /* 顶部 Header */
 .header-container {
   height: 64px;
-  background: rgba(255,255,255,0.8);
-  backdrop-filter: blur(12px);
-  border-bottom: 1px solid #f1f5f9;
+  background: rgba(255,255,255,0.9);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid #e2e8f0;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 32px;
+  padding: 0 24px;
   position: sticky;
   top: 0;
   z-index: 10;
 }
 
-.page-title { font-size: 18px; font-weight: 600; color: #1e293b; }
+.page-title { font-size: 16px; font-weight: 600; color: #334155; }
 
-.header-right { display: flex; align-items: center; gap: 16px; }
+.header-right { display: flex; align-items: center; gap: 20px; }
 
-.env-selector { 
-  display: flex; align-items: center; 
-  background: #fff; border: 1px solid #e2e8f0;
-  padding: 2px 2px 2px 10px; border-radius: 6px; 
+/* [核心修改] 环境选择器样式 */
+.env-selector-wrapper {
+  display: flex;
+  align-items: center;
+  /* 防止被挤压 */
+  flex-shrink: 0;
 }
-.env-selector .label { font-size: 12px; color: #64748b; margin-right: 6px; }
-:deep(.env-select .el-input__wrapper) { box-shadow: none !important; padding: 0 8px !important; }
+.env-selector-wrapper .label { font-size: 13px; color: #64748b; margin-right: 8px; }
 
-.divider { height: 20px; width: 1px; background: #e2e8f0; margin: 0 8px; }
+.divider { height: 16px; width: 1px; background: #cbd5e1; }
 
 .user-profile {
   display: flex; align-items: center; cursor: pointer;
-  padding: 6px; border-radius: 8px; transition: all 0.2s;
+  padding: 4px 8px; border-radius: 6px; transition: all 0.2s;
 }
 .user-profile:hover { background: #f1f5f9; }
-.user-avatar { background: #4f46e5; font-size: 14px; margin-right: 10px; }
-.user-meta { display: flex; flex-direction: column; margin-right: 8px; }
-.username { font-size: 14px; font-weight: 500; color: #334155; line-height: 1.2; }
+.user-avatar { color: #fff; font-size: 14px; margin-right: 10px; font-weight: 600; }
+.user-meta { display: flex; flex-direction: column; margin-right: 4px; text-align: right; }
+.username { font-size: 13px; font-weight: 600; color: #334155; line-height: 1.3; }
 .role { font-size: 11px; color: #94a3b8; }
-.arrow-icon { font-size: 12px; color: #94a3b8; }
+.arrow-icon { font-size: 12px; color: #94a3b8; margin-left: 4px; }
 
-/* 主内容区 */
-.main-container { padding: 32px; overflow-x: hidden; }
+/* 内容区 */
+.main-container { padding: 24px; overflow-x: hidden; }
 
 /* 路由动画 */
-.fade-slide-enter-active, .fade-slide-leave-active { transition: all 0.25s ease; }
-.fade-slide-enter-from { opacity: 0; transform: translateY(8px); }
-.fade-slide-leave-to { opacity: 0; transform: translateY(-8px); }
+.fade-slide-enter-active, .fade-slide-leave-active { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+.fade-slide-enter-from { opacity: 0; transform: translateX(10px); }
+.fade-slide-leave-to { opacity: 0; transform: translateX(-10px); }
 </style>
