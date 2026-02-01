@@ -29,17 +29,25 @@ def init():
             db.add(Menu(title="控制台", path="/", icon="Odometer", sort=1, component="Dashboard"))
             db.add(Menu(title="项目管理", path="/projects", icon="Folder", sort=3, component="ProjectList"))
 
-            # AI 模块
+            # --- AI 模块 ---
             db.add(Menu(title="知识库管理", path="/knowledge", icon="Files", sort=6, component="KnowledgeBase"))
             db.add(Menu(title="智能用例生成", path="/generator", icon="MagicStick", sort=7, component="CaseGenerator"))
 
-            m_web_ui = Menu(title="WEB_UI", icon="Monitor", sort=8)
+            # [新增] AI 视觉找茬
+            # 路径 /tools/ai-diff 对应前端路由配置
+            # 组件 AiDiff 对应前端 views/AiDiff.vue
+            db.add(Menu(title="AI 视觉找茬", path="/tools/ai-diff", icon="View", sort=8, component="AiDiff"))
+
+            # --- B. 父菜单 ---
+
+            # WEB_UI (将 sort 顺延到 10，避免冲突)
+            m_web_ui = Menu(title="WEB_UI", icon="Monitor", sort=10)
             db.add(m_web_ui)
 
             m_system = Menu(title="系统管理", icon="Setting", sort=99)
             db.add(m_system)
 
-            db.flush()
+            db.flush()  # 提交以获取 ID
 
             # 1. WEB_UI 子菜单
             if m_web_ui.id:

@@ -45,11 +45,24 @@
 
         <el-table-column prop="description" label="描述" show-overflow-tooltip min-width="150" />
 
-        <el-table-column label="操作" width="200" fixed="right" align="right">
+        <el-table-column label="操作" width="280" fixed="right" align="right">
           <template #default="{ row }">
             <el-button type="primary" link @click="handleEdit(row.id)">编辑</el-button>
-            <el-button type="success" link @click="handleFastRun(row)">运行</el-button>
+
+            <el-button type="info" link @click="handleFastRun(row)">接口运行</el-button>
+
+            <el-button
+              type="success"
+              link
+              :loading="row.androidLoading"
+              @click="handleAndroidRun(row)"
+            >
+              <el-icon class="el-icon--left"><Cellphone /></el-icon>
+              Android
+            </el-button>
+
             <el-divider direction="vertical" />
+
             <el-popconfirm title="确定删除该用例?" @confirm="handleDelete(row.id)">
               <template #reference>
                 <el-button type="danger" link>删除</el-button>
@@ -78,8 +91,9 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useEnvStore } from '@/stores/env'
 import axios from '@/utils/request'
+import { dispatchTask } from '@/api/android' // 导入 Android API
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Refresh, Search } from '@element-plus/icons-vue'
+import { Plus, Refresh, Search, Cellphone } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const envStore = useEnvStore()
@@ -121,16 +135,18 @@ const init = async () => {
       axios.get('/testcases/')
     ])
     projects.value = pRes.data
-    allData.value = cRes.data
+    // 为每个数据项添加 loading 状态字段
+    allData.value = cRes.data.map((item: any) => ({ ...item, androidLoading: false }))
   } catch(e) { console.error(e) }
   finally { loading.value = false }
 }
 
+// 原有的快速运行 (假设是 HTTP 接口测试)
 const handleFastRun = async (row: any) => {
   const envId = envStore.currentEnvId
   const confirmMsg = envId
-    ? `即将使用【全局环境 (ID:${envId})】运行，确定吗？`
-    : `当前未选择环境，将以默认配置运行，确定吗？`
+    ? `即将使用【全局环境 (ID:${envId})】运行接口测试，确定吗？`
+    : `当前未选择环境，将以默认配置运行接口测试，确定吗？`
 
   try {
     await ElMessageBox.confirm(confirmMsg, '快速运行', {
@@ -141,8 +157,50 @@ const handleFastRun = async (row: any) => {
     const params = envId ? { env_id: envId } : {}
     const res = await axios.post(`/testcases/${row.id}/run`, null, { params })
     ElMessage.success('任务已提交')
-    router.push(`/report-view/${res.data.id}`)
+    // 这里假设普通运行也跳转到通用的 report 页面
+    // router.push(`/report-view/${res.data.id}`)
   } catch (e) { /* Cancelled */ }
+}
+
+// 新增：Android 自动化运行
+const handleAndroidRun = async (row: any) => {
+  // 可以增加确认框
+  try {
+    await ElMessageBox.confirm('确定要将此用例下发到 Android 执行器吗？请确保本地执行器已启动并连接手机。', 'Android 执行', {
+      confirmButtonText: '下发',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+
+    row.androidLoading = true
+    try {
+      // 调用我们在 api/android.ts 中定义的接口
+      const res = await dispatchTask(row.id)
+
+      // [修复] 从 res.data 获取数据，因为 axios 拦截器返回的是完整 Response 对象
+      const taskData = res.data
+
+      ElMessage.success(`任务已下发 (Task ID: ${taskData.id})`)
+
+      // 询问是否跳转去查看报告状态
+      ElMessageBox.confirm('任务已进入队列，是否前往查看报告状态？', '下发成功', {
+        confirmButtonText: '去查看',
+        cancelButtonText: '留在本页',
+        type: 'success'
+      }).then(() => {
+        // 跳转到之前设计的 ReportDetail 页面
+        router.push(`/report-view/${taskData.id}`)
+      }).catch(() => {})
+
+    } catch (error) {
+      console.error(error)
+      ElMessage.error('任务下发失败')
+    } finally {
+      row.androidLoading = false
+    }
+  } catch {
+    // Cancelled
+  }
 }
 
 const handleCreate = () => router.push('/testcases/create')

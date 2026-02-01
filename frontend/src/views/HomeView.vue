@@ -22,6 +22,7 @@
                 <span>{{ menu.title }}</span>
               </template>
               <el-menu-item v-for="child in menu.children" :key="child.id" :index="child.path">
+                <el-icon v-if="child.icon"><component :is="iconMap[child.icon] || 'Menu'" /></el-icon>
                 <span>{{ child.title }}</span>
               </el-menu-item>
             </el-sub-menu>
@@ -127,10 +128,12 @@ import { useUserStore } from '@/stores/user'
 import { useEnvStore } from '@/stores/env'
 import axios from '@/utils/request'
 import { ElMessage } from 'element-plus'
-// 引入所有需要的图标
+// [核心修改] 引入所有需要的图标
 import {
   ArrowDown, Lock, SwitchButton, Platform, ElementPlus,
-  Odometer, Folder, Document, DataLine, Setting, Menu as MenuIcon
+  Odometer, Folder, Document, DataLine, Setting, Menu as MenuIcon,
+  // 新增图标:
+  View, MagicStick, Files, Edit, User, Connection, AlarmClock, Cpu
 } from '@element-plus/icons-vue'
 
 const router = useRouter()
@@ -140,7 +143,21 @@ const envStore = useEnvStore()
 
 // [核心修改] 图标映射表：将后端返回的字符串映射为组件对象
 const iconMap: Record<string, any> = {
-  Odometer, Folder, Document, DataLine, Setting, Menu: MenuIcon
+  Odometer,
+  Folder,
+  Document,
+  DataLine,
+  Setting,
+  Menu: MenuIcon,
+  // 注册新图标
+  View,         // AI 视觉找茬
+  MagicStick,   // 智能用例生成
+  Files,        // 知识库
+  Edit,         // 编辑类
+  User,         // 用户管理
+  Connection,   // 环境管理
+  AlarmClock,   // 定时任务
+  Cpu           // LLM配置
 }
 
 const envList = ref<any[]>([])
@@ -187,15 +204,18 @@ const fetchUserMenus = async () => {
     const res = await axios.get('/menus/')
     menuList.value = res.data
   } catch (e) {
-    // 模拟数据
+    // 模拟数据 (建议在后端接口通了之后，可以打印错误日志 e)
+    console.error("Fetch menus failed, using mock data:", e)
     menuList.value = [
       { id: 1, title: '仪表盘', path: '/dashboard', icon: 'Odometer' },
       { id: 2, title: '项目管理', path: '/projects', icon: 'Folder' },
       { id: 3, title: '用例管理', path: '/testcases', icon: 'Document' },
       { id: 4, title: '测试报告', path: '/reports', icon: 'DataLine' },
+      // 如果后端不通，可以在这里临时加上你的新菜单用于调试 UI
+      // { id: 8, title: 'AI 视觉找茬', path: '/tools/ai-diff', icon: 'View' },
       { id: 5, title: '系统设置', icon: 'Setting', children: [
-          { id: 51, title: '环境配置', path: '/envs' },
-          { id: 52, title: '成员管理', path: '/members' }
+          { id: 51, title: '环境配置', path: '/envs', icon: 'Connection' },
+          { id: 52, title: '成员管理', path: '/members', icon: 'User' }
       ]},
     ]
   }
