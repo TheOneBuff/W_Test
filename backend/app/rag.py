@@ -89,6 +89,7 @@ class RagService:
         self.base_url = base_url or "http://host.docker.internal:11434/v1"
 
         logging.info(f"🔌 正在初始化 Embedding 模型: {self.model_name}")
+        print(f"🔌 正在初始化 Embedding 模型: {self.model_name}")
 
         # 判断是否为 Ollama 环境
         is_ollama = "11434" in self.base_url or self.api_key == "ollama" or "localhost" in self.base_url

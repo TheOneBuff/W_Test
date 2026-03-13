@@ -170,7 +170,6 @@ async def generate_cases(
             models.LLMConfig.user_id == current_user.id,
             models.LLMConfig.is_active_gen == True
         ).first()
-
         if not chat_config:
             raise Exception("请先激活一个用途为'用例生成(Gen)'的模型")
 
@@ -192,36 +191,40 @@ async def generate_cases(
                 docs = rag.search(requirement, k=3)
                 rag_context = "\n\n".join(
                     [f"--- 参考规则/用例 {i + 1} ---\n{d.page_content}" for i, d in enumerate(docs)])
+                print("rag查询")
             except Exception as e:
                 print(f"RAG search failed: {e}")
                 rag_context = "（暂无历史参考数据）"
 
         # 3. 构造 System Prompt
         system_prompt = """
-        你是一个资深的QA测试专家。你需要根据用户的【需求描述】和可选的【产品截图】设计测试用例。
-
-        !!! 核心要求 (CRITICAL INSTRUCTION) !!!
-        1. **严格遵守参考规则**：下文提供的【知识库参考信息】可能包含具体的 UI/UX 规范、业务校验规则或历史用例风格。你生成的用例必须符合这些规则。
-        2. **风格一致性**：输出格式必须严格模仿参考用例的结构（包括字段排版、分割线风格、JSON 键值结构）。
-        3. **视觉还原**：如果历史用例在 "expected" 字段使用了多行文本或特殊符号来模拟 UI 布局，请照做。
-        4. **详细度**：不要只写“显示正确”，要写出具体的字段值。
-
-        请输出纯 JSON 格式的列表，列表项包含：module, title, precondition, steps (数组), expected, priority (P0/P1/P2)。
-        """
-
+你是一个资深的UI/UX测试专家。你需要根据用户的【图片】设计一条测试用例。
+  !!! 核心要求 (CRITICAL INSTRUCTION) !!!
+  1. **严格遵守参考风格**：输出格式必须严格模仿下方的风格（包括字段排版、分割线风格、JSON 键值结构）
+      参考风格：
+ ——————————————————————————————————————————
+         <                      发票详情
+         未申请图标                              未申请
+         应收金额                                ￥210
+         不可开票金额                             ￥10
+         可开票金额                              ￥200
+         交易类型                                 消费
+         时间                     2025-01-01 10:00:00
+         交易流水号
+         发票状态                            未申请发票
+         开具状态                              未开发票
+———————————————————————————————————————————
+  2. **视觉还原**：多行文本或特殊符号来模拟 UI 布局，请照做，尽量还原视觉
+  3. **详细度**：不要只写“显示正确”，要写出具体的字段值。
+  请输出纯 JSON 格式的列表，列表项包含：module, title, precondition, steps (数组), expected, priority (P0/P1/P2)。
+  """
         messages = [{"role": "system", "content": system_prompt}]
         user_content = []
 
         # 4. 构造 User Prompt
-        prompt_text = f"""
-        【当前需求描述】：
-        {requirement}
-
-        【知识库参考信息 (这是必须遵守的业务规则和风格)】：
-        {rag_context}
-
+        prompt_text = f"""	
         请执行：
-        1. 分析【知识库参考信息】中的测试点设计思路、业务规则和格式风格。
+        1. 你要先学习风格，再生成测试用例。
         2. 结合当前需求，生成覆盖 UI 交互、数据校验的测试用例。
         3. 确保输出的 JSON 格式与参考信息完全一致。
         """
@@ -234,17 +237,20 @@ async def generate_cases(
             with open(final_image_path, "rb") as img_f:
                 image_data = img_f.read()
                 base64_image = base64.b64encode(image_data).decode('utf-8')
-            user_content.append({"type": "text", "text": prompt_text + "\n请结合上传的产品截图进行设计。"})
             user_content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}})
         else:
             user_content.append({"type": "text", "text": prompt_text})
 
         messages.append({"role": "user", "content": user_content})
 
-        # 5. 调用 LLM (使用 AsyncOpenAI)
+        base_url = chat_config.base_url.rstrip("/")
+        if not base_url.endswith("/v1"):
+            base_url += "/v1"
+
         client = AsyncOpenAI(
-            api_key=chat_config.api_key,
-            base_url=chat_config.base_url
+            api_key=chat_config.api_key or "ollama",  # Ollama 无需真实API Key，填任意值
+            base_url=base_url,
+            timeout=600.0  # 新增：全局超时
         )
 
         # 关键修改：使用 await 异步调用，防止阻塞
@@ -252,15 +258,19 @@ async def generate_cases(
             model=chat_config.model_name,
             messages=messages,
             temperature=0.2,
-            max_tokens=2500
+            max_tokens=2500,
+            timeout=600,
+            extra_body={"enable_thinking": False, "verbose": False},
         )
-
         res_content = response.choices[0].message.content
-        content = res_content.strip()
+
+        # 使用qwen3.5-27b的处理 lmstudio部署
+        content = res_content.strip().split("```json")[1]
+
         if content.startswith("```json"): content = content[7:]
         if content.startswith("```"): content = content[3:]
-        if content.endswith("```"): content = content[:-3]
 
+        if content.endswith("```"): content = content[:-3]
         result_json = json.loads(content.strip())
 
         new_record.result_json = result_json

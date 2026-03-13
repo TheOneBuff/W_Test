@@ -68,6 +68,7 @@ services:
       - TZ=Asia/Shanghai
       - APP_NAME=w_test  # 添加
       - ANONYMIZED_TELEMETRY=False
+      - CHROMA_TELEMETRY_ENABLED=False
     volumes:
       - ./backend:/app
       - ./uploads:/data/uploads
