@@ -11,6 +11,8 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 from pydantic import BaseModel
+import re
+
 
 # --- 导入路径修正 ---
 from .. import models, schemas
@@ -210,7 +212,7 @@ async def generate_cases(
          可开票金额                              ￥200
          交易类型                                 消费
          时间                     2025-01-01 10:00:00
-         交易流水号
+         交易流水号                     12345678901312
          发票状态                            未申请发票
          开具状态                              未开发票
 ———————————————————————————————————————————
@@ -265,15 +267,27 @@ async def generate_cases(
         res_content = response.choices[0].message.content
 
         # 使用qwen3.5-27b的处理 lmstudio部署
-        content = res_content.strip().split("```json")[1]
+        # 步骤1：清理首尾空白
+        clean_content = res_content.strip()
 
-        if content.startswith("```json"): content = content[7:]
-        if content.startswith("```"): content = content[3:]
+        # 步骤2：如果开头是 <think>，截掉 <think></think> 标签
+        if clean_content.startswith("<think>"):
+            # 找到 </think> 标签的位置
+            end_think_pos = clean_content.find("</think>")
+            if end_think_pos != -1:
+                # 截取 </think> 之后的内容
+                clean_content = clean_content[end_think_pos + len("</think>"):].strip()
 
-        if content.endswith("```"): content = content[:-3]
-        result_json = json.loads(content.strip())
+        # 步骤3：尝试提取 JSON 代码块
+        json_match = re.search(r'```json\s*(.*?)\s*```', clean_content, re.DOTALL)
 
-        new_record.result_json = result_json
+        if json_match:
+            json_str = json_match.group(1).strip()
+        else:
+            # 如果没有代码块标记，尝试直接解析整个内容
+            json_str = clean_content
+        print(json_str)
+        new_record.result_json = json.loads(json_str)
         new_record.status = "success"
 
     except Exception as e:
