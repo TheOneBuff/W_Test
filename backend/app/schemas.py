@@ -179,6 +179,26 @@ class TaskLogOut(BaseModel):
         from_attributes = True
 
 
+class MaterialBase(BaseModel):
+    name: str
+    project_id: Optional[int] = None
+
+
+class MaterialCreate(MaterialBase):
+    pass
+
+
+class MaterialOut(MaterialBase):
+    id: int
+    file_path: str
+    file_type: str
+    file_size: int
+    create_time: datetime
+
+    class Config:
+        from_attributes = True
+
+
 # --- Periodic Task ---
 class PeriodicTaskBase(BaseModel):
     name: str

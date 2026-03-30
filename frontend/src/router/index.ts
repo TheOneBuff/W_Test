@@ -103,6 +103,13 @@ const router = createRouter({
           name: 'AiDiff',
           component: () => import('../views/AiDiff.vue'), // 动态加载
           meta: { title: 'AI 视觉找茬' }
+        },
+        // --- 素材管理 ---
+        {
+          path: '/materials',
+          name: 'MaterialUpload',
+          component: () => import('../views/MaterialUpload.vue'),
+          meta: { title: '素材管理' }
         }
       ]
     },

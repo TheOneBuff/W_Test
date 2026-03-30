@@ -133,7 +133,7 @@ const duration = computed(() => {
 const fetchStatus = async () => {
   try {
     // 假设后端有通用的 GET /api/reports/{id} 接口
-    const res = await request.get(`/api/reports/${route.params.id}`)
+    const res = await request.get(`/testcases/reports/${route.params.id}`)
     report.value = res.data // 确保 res.data 包含 TestReportOut 的所有字段
 
     // 如果是 Pending 或 Running，继续轮询

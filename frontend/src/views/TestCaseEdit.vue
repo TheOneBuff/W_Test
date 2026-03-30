@@ -78,13 +78,19 @@
         </div>
         <div class="monaco-container">
           <vue-monaco-editor
+            v-if="editorReady"
             v-model:value="form.script_content"
             :language="editorLanguage"
             theme="vs-dark"
             :options="editorOptions"
             @mount="handleEditorMount"
+            @error="handleEditorError"
             class="monaco-editor"
           />
+          <div v-else class="editor-loading">
+            <el-icon class="is-loading"><Loading /></el-icon>
+            <span>加载编辑器中...</span>
+          </div>
         </div>
       </div>
     </div>
@@ -155,6 +161,7 @@ const isEdit = computed(() => route.params.id !== undefined)
 const saving = ref(false)
 const running = ref(false)
 const editorRef = shallowRef()
+const editorReady = ref(false)
 
 const projectList = ref<any[]>([])
 const envList = ref<any[]>([])
@@ -199,6 +206,11 @@ const TEMPLATES: any = {
 
 const handleEditorMount = (editor: any) => { editorRef.value = editor }
 
+const handleEditorError = (error: any) => {
+  console.error('Monaco editor initialization error:', error)
+  ElMessage.error('编辑器初始化失败，请刷新页面重试')
+}
+
 onMounted(async () => {
   try {
     const [pRes, eRes] = await Promise.all([axios.get('/projects/'), axios.get('/envs/')])
@@ -210,7 +222,18 @@ onMounted(async () => {
     } else {
       form.script_content = TEMPLATES.typescript
     }
-  } catch (e) { console.error(e) }
+    
+    // 确保DOM渲染完成后再初始化编辑器
+    nextTick(() => {
+      editorReady.value = true
+    })
+  } catch (e) {
+    console.error(e)
+    // 即使出错也显示编辑器
+    nextTick(() => {
+      editorReady.value = true
+    })
+  }
 })
 
 const handleTypeChange = (val: string) => {
@@ -324,6 +347,21 @@ const openReport = () => window.open(router.resolve(`/report-view/${debugReportI
 .file-tab { color: #e0e0e0; font-size: 13px; display: flex; align-items: center; background: #1e1e1e; height: 100%; padding: 0 12px; border-top: 2px solid #409eff; }
 .editor-tip { color: #666; font-size: 12px; }
 .monaco-container { flex: 1; overflow: hidden; }
+.monaco-editor { width: 100%; height: 100%; }
+.editor-loading {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 12px;
+  color: #666;
+  background: #1e1e1e;
+}
+.editor-loading .el-icon {
+  font-size: 24px;
+}
 
 /* 调试抽屉 */
 .debug-layout { height: 100%; display: flex; flex-direction: column; padding: 0 20px 20px; }

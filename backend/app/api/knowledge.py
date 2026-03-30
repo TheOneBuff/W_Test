@@ -197,53 +197,149 @@ async def generate_cases(
             except Exception as e:
                 print(f"RAG search failed: {e}")
                 rag_context = "（暂无历史参考数据）"
-
-        # 3. 构造 System Prompt
-        system_prompt = """
-你是一个资深的UI/UX测试专家。你需要根据用户的【图片】设计一条测试用例。
-  !!! 核心要求 (CRITICAL INSTRUCTION) !!!
-  1. **严格遵守参考风格**：输出格式必须严格模仿下方的风格（包括字段排版、分割线风格、JSON 键值结构）
-      参考风格：
- ——————————————————————————————————————————
-         <                      发票详情
-         未申请图标                              未申请
-         应收金额                                ￥210
-         不可开票金额                             ￥10
-         可开票金额                              ￥200
-         交易类型                                 消费
-         时间                     2025-01-01 10:00:00
-         交易流水号                     12345678901312
-         发票状态                            未申请发票
-         开具状态                              未开发票
-———————————————————————————————————————————
-  2. **视觉还原**：多行文本或特殊符号来模拟 UI 布局，请照做，尽量还原视觉
-  3. **详细度**：不要只写“显示正确”，要写出具体的字段值。
-  请输出纯 JSON 格式的列表，列表项包含：module, title, precondition, steps (数组), expected, priority (P0/P1/P2)。
-  """
-        messages = [{"role": "system", "content": system_prompt}]
         user_content = []
+        messages = None
+        if final_image_path:
+            print(1111)
+            # 3. 构造 System Prompt
+            system_prompt = """
+                            你是一个资深的UI/UX测试专家。你需要根据用户的【图片】设计一条测试用例。
+                              !!! 核心要求 (CRITICAL INSTRUCTION) !!!
+                              1. **严格遵守参考风格**：输出格式必须严格模仿下方的风格（包括字段排版、分割线风格、JSON 键值结构）
+                                  参考风格：
+                              ——————————————————————————————————————————
+                                     <                      发票详情
+                                     未申请图标                              未申请
+                                     应收金额                                ￥210
+                                     不可开票金额                             ￥10
+                                     可开票金额                              ￥200
+                                     交易类型                                 消费
+                                     时间                     2025-01-01 10:00:00
+                                     交易流水号
+                                     发票状态                            未申请发票
+                                     开具状态                              未开发票
+                              ———————————————————————————————————————————
+                              2. **视觉还原**：多行文本或特殊符号来模拟 UI 布局，请照做，尽量还原视觉
+                              3. **详细度**：不要只写“显示正确”，要写出具体的字段值。
+                              请输出纯 JSON 格式的列表，列表项包含：module, title, precondition, steps (数组), expected, priority (P0/P1/P2)。
+                              """
+            messages = [{"role": "system", "content": system_prompt}]
 
-        # 4. 构造 User Prompt
-        prompt_text = f"""	
-        请执行：
-        1. 你要先学习风格，再生成测试用例。
-        2. 结合当前需求，生成覆盖 UI 交互、数据校验的测试用例。
-        3. 确保输出的 JSON 格式与参考信息完全一致。
-        """
+            prompt_text = f"""
+                                 请执行：
+                                1. 你要先学习风格，再生成测试用例。
+                                2. 结合当前需求，生成覆盖 UI 交互、数据校验的测试用例。
+                                3. 确保输出的 JSON 格式与参考信息完全一致。
+                            """
 
-        # 多模态处理
-        # 兼容性处理：防止数据库没有 model_type 字段导致报错
-        is_multimodal = getattr(chat_config, 'model_type', 'text') == 'multimodal'
+            # 多模态处理
+            # 兼容性处理：防止数据库没有 model_type 字段导致报错
+            is_multimodal = getattr(chat_config, 'model_type', 'text') == 'multimodal'
 
-        if is_multimodal and final_image_path:
-            with open(final_image_path, "rb") as img_f:
-                image_data = img_f.read()
-                base64_image = base64.b64encode(image_data).decode('utf-8')
-            user_content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}})
+            if is_multimodal and final_image_path:
+                with open(final_image_path, "rb") as img_f:
+                    image_data = img_f.read()
+                    base64_image = base64.b64encode(image_data).decode('utf-8')
+                user_content.append({"type": "text", "text": prompt_text + "\n请结合上传的产品截图进行设计。"})
+                user_content.append(
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}})
+            else:
+                user_content.append({"type": "text", "text": prompt_text})
+
+            messages.append({"role": "user", "content": user_content})
         else:
+            print(222)
+            # 3. 构造 System Prompt
+            system_prompt = """
+                            
+## Role: 高级测试工程师
+### Profile
+- language: 中文
+- description: 专业从事复杂系统测试设计的质量保障专家
+- background: 10年PaaS/云平台/金融/电商领域测试经验，ISTQB认证专家
+- personality: 严谨细致，逻辑性强，风险敏感
+- expertise: 测试策略制定、场景建模、异常流覆盖
+- target_audience: 测试团队/开发团队/质量保障部门
+
+## Rules
+### 1. 测试设计能力
+- 等价类划分: 精准识别有效/无效等价类边界
+- 场景分析法: 构建用户旅程地图识别关键路径
+- 正交分解: 处理多参数组合场景
+- 状态迁移: 验证复杂状态转换逻辑
+
+### 2. 设计原则
+- MECE原则: 用例集合相互独立且完全穷尽
+- 风险优先: 按失效影响度分配测试强度
+
+### 3. 执行准则
+- 原子操作: 单用例验证单一功能点
+- 正向优先: 70%用例覆盖正常业务流程
+- 逆向覆盖: 30%用例验证异常处理机制
+- 生成零遗漏的测试用例集
+- 补充边界值/异常流用例
+- 用例数量要求: 达到路径覆盖率100%，覆盖所有需求内容
+
+### 4. 格式约束
+- 用例步骤: 每个用例需2个以上步骤，建议2~5步
+- 结果明确: 每个预期结果包含可验证断言
+- 优先级定义: P0(最高)/P1(高)/P2(中)/P3(低)
+- 特性标注: 功能/性能/安全/兼容性
+- 【强制】全文禁止使用中文括号()，仅允许使用英文括号()或不使用括号
+
+### 5. 用例标题命名规范
+格式: 模块功能-操作-条件-预期结果
+- 功能: 明确测试所属模块或核心功能
+- 操作/场景: 用户执行的具体操作
+- 条件: 前置条件、输入参数、边界条件
+- 预期结果: 简述用例预期输出
+
+## 输出格式要求【强制】
+1. 仅输出标准JSON数组，无多余文字、无注释、无代码块
+2. 字段固定，不可增减、不可改名：
+[
+    {
+        "模块": "需求所属功能模块名称",
+        "用例标题": "按照命名规范生成的标准标题",
+        "前置条件": "用例执行前必须满足的条件",
+        "测试步骤": ["步骤1","步骤2","步骤3"],
+        "预期结果": ["步骤1对应结果","步骤2对应结果","步骤3对应结果"],
+        "优先级": "P0/P1/P2/P3 四选一",
+        "标签": "功能测试/兼容性测试/易用性测试/性能测试/安全测试/接口测试/冒烟测试",
+        "备注": "测试场景+测试数据+设计方法"
+    }
+]
+3. 测试步骤与预期结果必须一一对应，数量一致
+4. 正向用例占比70%，逆向用例占比30%
+5. 字段内容禁止出现中文括号，避免接口解析失败
+
+## 工作流程
+### 步骤1: 分析需求
+- 理解业务需求和功能点
+- 识别关键路径和边界条件
+- 确定测试策略
+
+### 步骤2: 生成测试用例
+- 严格按照规则生成标准JSON格式用例
+- 覆盖所有需求，路径覆盖率100%
+
+### 步骤3: 格式校验
+- 校验JSON格式合法性
+- 校验字段完整性
+- 校验无中文括号
+- 校验步骤与结果一一对应
+"""
+            messages = [{"role": "system", "content": system_prompt}]
+
+            prompt_text = f"""
+                    【当前需求描述】：
+                    {requirement}
+                    【知识库参考信息 (这是必须遵守的业务规则和风格)】：
+                    {rag_context}
+                    """
             user_content.append({"type": "text", "text": prompt_text})
 
-        messages.append({"role": "user", "content": user_content})
+            messages.append({"role": "user", "content": user_content})
 
         base_url = chat_config.base_url.rstrip("/")
         if not base_url.endswith("/v1"):
@@ -286,6 +382,7 @@ async def generate_cases(
         else:
             # 如果没有代码块标记，尝试直接解析整个内容
             json_str = clean_content
+        print("这是返回结果")
         print(json_str)
         new_record.result_json = json.loads(json_str)
         new_record.status = "success"

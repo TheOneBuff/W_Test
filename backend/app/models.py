@@ -276,3 +276,24 @@ class TestCaseRecord(Base):
 
     create_time = Column(DateTime, default=datetime.now)
     update_time = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+
+class Material(Base):
+    __tablename__ = "materials"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), nullable=False)  # 素材名称
+    file_path = Column(String(255), nullable=False)  # 存储路径
+    file_type = Column(String(50), nullable=False)  # 文件类型
+    file_size = Column(Integer, nullable=False)  # 文件大小（字节）
+    project_id = Column(Integer, index=True, nullable=True)  # 所属项目
+
+    create_time = Column(DateTime, default=datetime.now())
+
+    # Material -> Project (Many-to-One)
+    project = relationship(
+        "Project",
+        backref=backref("materials", foreign_keys=[project_id]),
+        primaryjoin="Project.id == Material.project_id",
+        foreign_keys=[project_id]
+    )

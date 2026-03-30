@@ -8,11 +8,10 @@ export const dispatchTask = (caseId: number) => {
 }
 
 export const getReportStatus = (reportId: number) => {
-    // 这里可以直接复用获取 report 详情的接口，假设后端有 /api/reports/{id}
-    // 或者你需要去 backend/app/api/android.py 再加一个查询接口
-    // 这里假设复用 ReportList.vue 里的逻辑
+    // 这里可以直接复用获取 report 详情的接口
+    // 复用 ReportList.vue 里的逻辑
     return request({
-        url: `/api/reports/${reportId}`,
+        url: `/testcases/reports/${reportId}`,
         method: 'get'
     })
 }

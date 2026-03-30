@@ -55,7 +55,8 @@ def init():
                             component="ReportList"))
                 db.add(Menu(title="WEB_UI用例管理", path="/testcases", icon="List", parent_id=m_web_ui.id, sort=2,
                             component="TestCaseList"))
-
+                db.add(Menu(title="素材管理", path="/materials", icon="Picture", parent_id=m_web_ui.id, sort=3,
+                            component="MaterialUpload"))
             # 2. 系统管理 子菜单
             if m_system.id:
                 db.add(Menu(title="用户管理", path="/users", icon="User", sort=1, parent_id=m_system.id,
