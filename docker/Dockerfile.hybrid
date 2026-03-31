@@ -35,7 +35,7 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 # 5. 设置 npm 国内镜像源并安装 Midscene CLI (Node.js 依赖)
 # 这一步将 midscene 安装到全局，供 Python subprocess 调用
 RUN npm config set registry https://registry.npmmirror.com && \
-    npm install -g @midscene/cli @midscene/web tsx typescript @types/node playwright @playwright/test dotenv
+    npm install -g @midscene/cli puppeteer @midscene/web tsx typescript @types/node playwright @playwright/test dotenv
 
 RUN npx playwright install chromium && \
     npx playwright install-deps chromium
