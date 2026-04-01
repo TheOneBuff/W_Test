@@ -130,20 +130,21 @@ def run_midscene_task(report_id: int, llm_config: dict):
         report.logs = current_logs
         report.end_time = datetime.now()
 
+        # 查找生成的 HTML 报告
+        found_html = None
+        for root, dirs, files in os.walk(work_dir):
+            for file in files:
+                if file.endswith(".html"):
+                    abs_path = os.path.join(root, file)
+                    # 计算相对路径，供前端访问
+                    found_html = os.path.relpath(abs_path, REPORT_DIR)
+                    break
+            if found_html: break
+
         # --- 结果判定 ---
         if process.returncode == 0:
             report.status = TaskStatus.SUCCESS
             logging.info("Task finished successfully.")
-            # 查找生成的 HTML 报告
-            found_html = None
-            for root, dirs, files in os.walk(work_dir):
-                for file in files:
-                    if file.endswith(".html"):
-                        abs_path = os.path.join(root, file)
-                        # 计算相对路径，供前端访问
-                        found_html = os.path.relpath(abs_path, REPORT_DIR)
-                        break
-                if found_html: break
 
             if found_html:
                 report.report_path = found_html
@@ -153,11 +154,34 @@ def run_midscene_task(report_id: int, llm_config: dict):
             report.status = TaskStatus.FAILED
             report.logs += f"\n[System] Process exited with code {process.returncode}"
             logging.error(f"Task failed with code {process.returncode}")
+            logging.error(f"报告目录 {found_html}")
+            # 即使失败也设置 report_path
+            if found_html:
+                report.report_path = found_html
+            else:
+                report.logs += "\n[System] No HTML report generated."
+
 
     except Exception as e:
         logging.exception("Exception during task execution")
         report.status = TaskStatus.FAILED
         report.logs = (report.logs or "") + f"\n[System Error] {str(e)}"
+        
+        # 即使异常也尝试查找 HTML 报告
+        found_html = None
+        for root, dirs, files in os.walk(work_dir):
+            for file in files:
+                if file.endswith(".html"):
+                    abs_path = os.path.join(root, file)
+                    # 计算相对路径，供前端访问
+                    found_html = os.path.relpath(abs_path, REPORT_DIR)
+                    break
+            if found_html: break
+        
+        if found_html:
+            report.report_path = found_html
+        else:
+            report.logs += "\n[System] No HTML report generated."
     finally:
         db.commit()
         db.close()

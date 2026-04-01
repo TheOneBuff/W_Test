@@ -77,16 +77,13 @@
           <span class="editor-tip">按 Ctrl+S 保存</span>
         </div>
         <div class="monaco-container">
-          <vue-monaco-editor
-            v-if="editorReady"
-            v-model:value="form.script_content"
-            :language="editorLanguage"
-            theme="vs-dark"
-            :options="editorOptions"
-            @mount="handleEditorMount"
-            @error="handleEditorError"
-            class="monaco-editor"
-          />
+          <div v-if="editorReady && !useFallbackEditor" ref="editorContainer" class="monaco-editor"></div>
+          <textarea 
+            v-else-if="editorReady && useFallbackEditor"
+            v-model="form.script_content"
+            class="fallback-editor"
+            :class="{ 'script-typescript': form.script_type === 'typescript', 'script-yaml': form.script_type === 'yaml' }"
+          ></textarea>
           <div v-else class="editor-loading">
             <el-icon class="is-loading"><Loading /></el-icon>
             <span>加载编辑器中...</span>
@@ -147,12 +144,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, computed, shallowRef, nextTick } from 'vue'
+import { ref, reactive, onMounted, computed, shallowRef, nextTick, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import axios from '@/utils/request'
 import { ElMessage } from 'element-plus'
-import { VueMonacoEditor } from '@guolao/vue-monaco-editor'
 import { ArrowLeft, VideoPlay, Check, Tools, Document, Loading, Select, CloseBold } from '@element-plus/icons-vue'
+
+// 尝试动态加载 Monaco 编辑器
+let monaco: any = null
+let editor: any = null
 
 const route = useRoute()
 const router = useRouter()
@@ -160,8 +160,9 @@ const isEdit = computed(() => route.params.id !== undefined)
 
 const saving = ref(false)
 const running = ref(false)
-const editorRef = shallowRef()
 const editorReady = ref(false)
+const useFallbackEditor = ref(false)
+const editorContainer = ref<HTMLElement | null>(null)
 
 const projectList = ref<any[]>([])
 const envList = ref<any[]>([])
@@ -178,12 +179,6 @@ const debugLogs = ref('')
 const debugStatus = ref('')
 let debugTimer: any = null
 const consoleBoxRef = ref<HTMLElement>()
-
-const editorOptions = {
-  automaticLayout: true, minimap: { enabled: false }, fontSize: 13,
-  scrollBeyondLastLine: false, tabSize: 2, wordWrap: 'on',
-  fontFamily: "'JetBrains Mono', Consolas, 'Courier New', monospace"
-}
 
 const editorLanguage = computed(() => {
   if (form.script_type === 'typescript') return 'typescript'
@@ -204,11 +199,39 @@ const TEMPLATES: any = {
   prompt: `打开百度首页\n在搜索框输入 Midscene\n点击搜索按钮`
 }
 
-const handleEditorMount = (editor: any) => { editorRef.value = editor }
-
-const handleEditorError = (error: any) => {
-  console.error('Monaco editor initialization error:', error)
-  ElMessage.error('编辑器初始化失败，请刷新页面重试')
+const initEditor = async () => {
+  if (!editorContainer.value) return
+  
+  try {
+    // 尝试动态加载 Monaco 编辑器
+    const monacoModule = await import('monaco-editor')
+    monaco = monacoModule.default || monacoModule
+    
+    // 初始化编辑器
+    editor = monaco.editor.create(editorContainer.value, {
+      value: form.script_content,
+      language: editorLanguage.value,
+      automaticLayout: true,
+      minimap: { enabled: false },
+      fontSize: 13,
+      scrollBeyondLastLine: false,
+      tabSize: 2,
+      wordWrap: 'on',
+      fontFamily: "'JetBrains Mono', Consolas, 'Courier New', monospace",
+      theme: 'vs-dark'
+    })
+    
+    // 监听内容变化
+    editor.onDidChangeModelContent(() => {
+      if (editor) {
+        form.script_content = editor.getValue()
+      }
+    })
+  } catch (error) {
+    console.error('Monaco editor initialization error:', error)
+    ElMessage.warning('Monaco 编辑器加载失败，使用备用编辑器')
+    useFallbackEditor.value = true
+  }
 }
 
 onMounted(async () => {
@@ -226,13 +249,23 @@ onMounted(async () => {
     // 确保DOM渲染完成后再初始化编辑器
     nextTick(() => {
       editorReady.value = true
+      // 延迟一下确保容器已经渲染完成
+      setTimeout(initEditor, 100)
     })
   } catch (e) {
-    console.error(e)
+    console.error('初始化错误:', e)
     // 即使出错也显示编辑器
     nextTick(() => {
       editorReady.value = true
+      useFallbackEditor.value = true
     })
+  }
+})
+
+onBeforeUnmount(() => {
+  // 清理编辑器实例
+  if (editor) {
+    editor.dispose()
   }
 })
 
@@ -240,6 +273,11 @@ const handleTypeChange = (val: string) => {
   const current = form.script_content.trim()
   const isDefault = Object.values(TEMPLATES).some((t: any) => t.trim() === current)
   if (!current || isDefault) form.script_content = TEMPLATES[val]
+  
+  // 更新编辑器语言
+  if (editor && !useFallbackEditor.value) {
+    monaco.editor.setModelLanguage(editor.getModel()!, editorLanguage.value)
+  }
 }
 
 const handleBack = () => router.push('/testcases')
@@ -348,6 +386,31 @@ const openReport = () => window.open(router.resolve(`/report-view/${debugReportI
 .editor-tip { color: #666; font-size: 12px; }
 .monaco-container { flex: 1; overflow: hidden; }
 .monaco-editor { width: 100%; height: 100%; }
+.fallback-editor {
+  width: 100%;
+  height: 100%;
+  padding: 10px;
+  border: none;
+  outline: none;
+  font-family: 'JetBrains Mono', Consolas, 'Courier New', monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  resize: none;
+  background-color: #1e1e1e;
+  color: #d4d4d4;
+  tab-size: 2;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.fallback-editor.script-typescript {
+  /* TypeScript 特定样式 */
+}
+
+.fallback-editor.script-yaml {
+  /* YAML 特定样式 */
+}
+
 .editor-loading {
   width: 100%;
   height: 100%;

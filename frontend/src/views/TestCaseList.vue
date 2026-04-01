@@ -43,23 +43,36 @@
           </template>
         </el-table-column>
 
+        <el-table-column label="最近一次执行状态" width="140">
+          <template #default="{ row }">
+            <div v-if="row.lastExecutionStatus" class="status-badge" :class="row.lastExecutionStatus">
+              <span class="dot"></span>
+              {{ statusText[row.lastExecutionStatus] || row.lastExecutionStatus }}
+            </div>
+            <div v-else class="status-badge pending">
+              <span class="dot"></span>
+              未执行
+            </div>
+          </template>
+        </el-table-column>
+
         <el-table-column prop="description" label="描述" show-overflow-tooltip min-width="150" />
 
         <el-table-column label="操作" width="280" fixed="right" align="right">
           <template #default="{ row }">
             <el-button type="primary" link @click="handleEdit(row.id)">编辑</el-button>
 
-            <el-button type="info" link @click="handleFastRun(row)">接口运行</el-button>
+            <el-button type="info" link @click="handleFastRun(row)">运行</el-button>
 
-            <el-button
-              type="success"
-              link
-              :loading="row.androidLoading"
-              @click="handleAndroidRun(row)"
-            >
-              <el-icon class="el-icon--left"><Cellphone /></el-icon>
-              Android
-            </el-button>
+<!--            <el-button-->
+<!--              type="success"-->
+<!--              link-->
+<!--              :loading="row.androidLoading"-->
+<!--              @click="handleAndroidRun(row)"-->
+<!--            >-->
+<!--              <el-icon class="el-icon&#45;&#45;left"><Cellphone /></el-icon>-->
+<!--              Android-->
+<!--            </el-button>-->
 
             <el-divider direction="vertical" />
 
@@ -104,6 +117,14 @@ const loading = ref(false)
 const filterProjectId = ref<number | null>(null)
 const searchKeyword = ref('')
 
+// 状态文本映射
+const statusText: any = {
+  success: '执行成功',
+  failed: '执行失败',
+  running: '运行中',
+  pending: '等待中'
+}
+
 // 分页状态
 const currentPage = ref(1)
 const pageSize = ref(10)
@@ -135,8 +156,29 @@ const init = async () => {
       axios.get('/testcases/')
     ])
     projects.value = pRes.data
+    
     // 为每个数据项添加 loading 状态字段
-    allData.value = cRes.data.map((item: any) => ({ ...item, androidLoading: false }))
+    const testCases = cRes.data.map((item: any) => ({ ...item, androidLoading: false }))
+    
+    // 获取每个测试用例的最新执行状态
+    for (const testCase of testCases) {
+      try {
+        const reportRes = await axios.get(`/testcases/reports/`, {
+          params: {
+            case_id: testCase.id,
+            limit: 1
+          }
+        })
+        
+        if (reportRes.data && reportRes.data.items && reportRes.data.items.length > 0) {
+          testCase.lastExecutionStatus = reportRes.data.items[0].status
+        }
+      } catch (e) {
+        console.error(`获取测试用例 ${testCase.id} 的执行状态失败:`, e)
+      }
+    }
+    
+    allData.value = testCases
   } catch(e) { console.error(e) }
   finally { loading.value = false }
 }
@@ -145,8 +187,8 @@ const init = async () => {
 const handleFastRun = async (row: any) => {
   const envId = envStore.currentEnvId
   const confirmMsg = envId
-    ? `即将使用【全局环境 (ID:${envId})】运行接口测试，确定吗？`
-    : `当前未选择环境，将以默认配置运行接口测试，确定吗？`
+    ? `即将使用【全局环境 (ID:${envId})】运行测试，确定吗？`
+    : `当前未选择环境，将以默认配置运行测试，确定吗？`
 
   try {
     await ElMessageBox.confirm(confirmMsg, '快速运行', {
@@ -233,4 +275,26 @@ onMounted(init)
 .font-medium { font-weight: 500; }
 .text-primary { color: #111827; }
 .text-gray { color: #9ca3af; font-family: monospace; }
+
+/* 状态徽章 (Dot Style) */
+.status-badge { display: inline-flex; align-items: center; font-size: 13px; font-weight: 500; }
+.status-badge .dot { width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+
+.status-badge.success { color: #059669; }
+.status-badge.success .dot { background: #10b981; }
+
+.status-badge.failed { color: #dc2626; }
+.status-badge.failed .dot { background: #ef4444; }
+
+.status-badge.running { color: #d97706; }
+.status-badge.running .dot { background: #f59e0b; animation: pulse 2s infinite; }
+
+.status-badge.pending { color: #6b7280; }
+.status-badge.pending .dot { background: #9ca3af; }
+
+@keyframes pulse {
+  0% { opacity: 1; }
+  50% { opacity: 0.5; }
+  100% { opacity: 1; }
+}
 </style>

@@ -69,6 +69,8 @@ services:
       - APP_NAME=w_test  # 添加
       - ANONYMIZED_TELEMETRY=False
       - CHROMA_TELEMETRY_ENABLED=False
+      - PUPPETEER_ARCH=arm64
+      - PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=false
     volumes:
       - ./backend:/app
       - ./uploads:/data/uploads

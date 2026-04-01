@@ -45,7 +45,7 @@
     </div>
 
     <div class="content-body">
-      <div v-if="report.status !== 'success'" class="log-wrapper">
+      <div v-if="(report.status === 'running' || report.status === 'pending') || (report.status === 'failed' && !reportUrl)" class="log-wrapper">
 
         <div v-if="report.status === 'running' || report.status === 'pending'" class="running-state">
           <div class="loading-spinner">
