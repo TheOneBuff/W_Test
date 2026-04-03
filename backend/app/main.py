@@ -3,6 +3,7 @@ from .database import engine, Base
 from .api import auth, user, llm, menus, testcases, projects, environments, periodic, dashboard,knowledge,vision_llm, materials
 from .tasks import run_midscene_task # 确保 task 被注册
 from .core.scheduler import start_scheduler
+from .core.logging import app_logger
 
 Base.metadata.create_all(bind=engine)
 

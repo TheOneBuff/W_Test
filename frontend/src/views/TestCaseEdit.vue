@@ -89,6 +89,26 @@
             <span>加载编辑器中...</span>
           </div>
         </div>
+        
+        <!-- YAML 校验状态显示 -->
+        <div v-if="form.script_type === 'yaml'" class="validation-status">
+          <el-alert
+            v-if="yamlValidationError"
+            type="error"
+            :title="'YAML 格式错误'"
+            :closable="false"
+            show-icon
+          >
+            {{ yamlValidationError }}
+          </el-alert>
+          <el-alert
+            v-else-if="yamlValidationSuccess"
+            type="success"
+            title="YAML 格式正确"
+            :closable="false"
+            show-icon
+          />
+        </div>
       </div>
     </div>
 
@@ -144,11 +164,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, computed, shallowRef, nextTick, onBeforeUnmount } from 'vue'
+import { ref, reactive, onMounted, computed, shallowRef, nextTick, onBeforeUnmount, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import axios from '@/utils/request'
 import { ElMessage } from 'element-plus'
 import { ArrowLeft, VideoPlay, Check, Tools, Document, Loading, Select, CloseBold } from '@element-plus/icons-vue'
+import * as yaml from 'js-yaml'
 
 // 尝试动态加载 Monaco 编辑器
 let monaco: any = null
@@ -179,6 +200,10 @@ const debugLogs = ref('')
 const debugStatus = ref('')
 let debugTimer: any = null
 const consoleBoxRef = ref<HTMLElement>()
+
+// YAML 校验相关
+const yamlValidationError = ref('')
+const yamlValidationSuccess = ref(false)
 
 const editorLanguage = computed(() => {
   if (form.script_type === 'typescript') return 'typescript'
@@ -269,6 +294,23 @@ onBeforeUnmount(() => {
   }
 })
 
+const validateYaml = (content: string) => {
+  if (form.script_type !== 'yaml') {
+    yamlValidationError.value = ''
+    yamlValidationSuccess.value = false
+    return
+  }
+  
+  try {
+    yaml.load(content)
+    yamlValidationError.value = ''
+    yamlValidationSuccess.value = true
+  } catch (error) {
+    yamlValidationError.value = (error as Error).message
+    yamlValidationSuccess.value = false
+  }
+}
+
 const handleTypeChange = (val: string) => {
   const current = form.script_content.trim()
   const isDefault = Object.values(TEMPLATES).some((t: any) => t.trim() === current)
@@ -278,12 +320,32 @@ const handleTypeChange = (val: string) => {
   if (editor && !useFallbackEditor.value) {
     monaco.editor.setModelLanguage(editor.getModel()!, editorLanguage.value)
   }
+  
+  // 验证 YAML
+  validateYaml(form.script_content)
 }
+
+// 监听脚本内容变化，进行 YAML 验证
+watch(
+  () => form.script_content,
+  (newContent) => {
+    validateYaml(newContent)
+  }
+)
 
 const handleBack = () => router.push('/testcases')
 
 const handleSave = async () => {
   if (!form.name) return ElMessage.warning('请输入用例名称')
+  
+  // YAML 格式校验
+  if (form.script_type === 'yaml') {
+    validateYaml(form.script_content)
+    if (yamlValidationError.value) {
+      return ElMessage.error(`YAML 格式错误: ${yamlValidationError.value}`)
+    }
+  }
+  
   saving.value = true
   try {
     if (isEdit.value) await axios.put(`/testcases/${route.params.id}`, form)
@@ -447,4 +509,27 @@ const openReport = () => window.open(router.resolve(`/report-view/${debugReportI
 .console-body { flex: 1; overflow: auto; padding: 12px; color: #d4d4d4; font-family: monospace; font-size: 12px; }
 .console-body pre { margin: 0; white-space: pre-wrap; word-break: break-all; }
 .drawer-footer { margin-top: 16px; }
+
+/* YAML 校验状态 */
+.validation-status {
+  padding: 10px 16px;
+  background: #252526;
+  border-top: 1px solid #333;
+}
+
+.validation-status :deep(.el-alert) {
+  margin: 0;
+  font-size: 12px;
+}
+
+.validation-status :deep(.el-alert__title) {
+  font-size: 12px;
+  font-weight: normal;
+}
+
+.validation-status :deep(.el-alert__content) {
+  font-size: 11px;
+  line-height: 1.4;
+  margin-top: 4px;
+}
 </style>

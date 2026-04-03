@@ -1,9 +1,9 @@
-import logging
 import os
 import shutil
 import subprocess
 import time
 from datetime import datetime, timedelta
+from .core.logging import app_logger as logging
 from celery import Celery
 from .database import SessionLocal
 from .models import TestReport, TaskStatus, KnowledgeDocument
@@ -21,12 +21,12 @@ def run_midscene_task(report_id: int, llm_config: dict):
     """
     执行 Midscene 任务 (增强版实时日志)
     """
-    logging.info(f"🚀 [Task Started] Report ID: {report_id}")
+    logging.info(f"🚀 [任务开始] 报告编号: {report_id}")
     db = SessionLocal()
     report = db.query(TestReport).filter(TestReport.id == report_id).first()
 
     if not report:
-        logging.error(f"Report {report_id} not found.")
+        logging.error(f"报告 {report_id} 没有找到")
         db.close()
         return
 
@@ -57,6 +57,7 @@ def run_midscene_task(report_id: int, llm_config: dict):
                 try:
                     shutil.copytree(last_cache_dir, target_cache_dir, dirs_exist_ok=True)
                     init_log = f"系统缓存已从run_{last_success_report.id}恢复\n"
+                    logging.info(init_log)
                     report.logs += init_log
                 except Exception as e:
                     logging.warning(f"缓存恢复失败: {e}")
@@ -89,14 +90,15 @@ def run_midscene_task(report_id: int, llm_config: dict):
         env["PYTHONUNBUFFERED"] = "1"
         env["FORCE_COLOR"] = "1"
         env["DEBUG"] = "pw:api"
-
+        env["MIDSCENE_MODEL_REASONING_ENABLED"] = "false"
+        
         # --- 构造命令 ---
         if is_ts:
             cmd = ["tsx", script_path]
         else:
             cmd = ["midscene", script_path]
 
-        logging.info(f"Executing: {' '.join(cmd)}")
+        logging.info(f"正在执行: {' '.join(cmd)}")
 
         # --- 核心：执行并实时读取 ---
         process = subprocess.Popen(
@@ -149,23 +151,23 @@ def run_midscene_task(report_id: int, llm_config: dict):
             if found_html:
                 report.report_path = found_html
             else:
-                report.logs += "\n[System] Warning: No HTML report generated."
+                report.logs += "\n[系统] 警告：未生成 HTML 报告"
         else:
             report.status = TaskStatus.FAILED
-            report.logs += f"\n[System] Process exited with code {process.returncode}"
-            logging.error(f"Task failed with code {process.returncode}")
+            report.logs += f"\n[系统] 进程已退出，退出码 {process.returncode}"
+            logging.error(f"任务执行失败，错误码 {process.returncode}")
             logging.error(f"报告目录 {found_html}")
             # 即使失败也设置 report_path
             if found_html:
                 report.report_path = found_html
             else:
-                report.logs += "\n[System] No HTML report generated."
+                report.logs += "\n[系统] 警告：未生成 HTML 报告"
 
 
     except Exception as e:
-        logging.exception("Exception during task execution")
+        logging.exception("任务执行过程中出现异常")
         report.status = TaskStatus.FAILED
-        report.logs = (report.logs or "") + f"\n[System Error] {str(e)}"
+        report.logs = (report.logs or "") + f"\n[系统错误] {str(e)}"
         
         # 即使异常也尝试查找 HTML 报告
         found_html = None
@@ -181,7 +183,7 @@ def run_midscene_task(report_id: int, llm_config: dict):
         if found_html:
             report.report_path = found_html
         else:
-            report.logs += "\n[System] No HTML report generated."
+            report.logs += "\n[系统] 警告：未生成 HTML 报告"
     finally:
         db.commit()
         db.close()

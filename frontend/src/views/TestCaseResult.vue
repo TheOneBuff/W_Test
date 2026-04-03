@@ -44,7 +44,7 @@
           <template #default="{ row }">
             <div class="pre-wrap">
               <template v-if="Array.isArray(row.steps)">
-                <div v-for="(s, i) in row.steps" :key="i">{{ i+1 }}. {{ s }}</div>
+                <div v-for="(s, i) in row.steps" :key="i">{{ s }}</div>
               </template>
               <template v-else>{{ row.steps }}</template>
             </div>
@@ -53,7 +53,12 @@
 
         <el-table-column label="预期结果" min-width="250">
           <template #default="{ row }">
-            <div class="pre-wrap">{{ row.expected }}</div>
+            <div class="pre-wrap">
+              <template v-if="Array.isArray(row.expected)">
+                <div v-for="(e, i) in row.expected" :key="i">{{ e }}</div>
+              </template>
+              <template v-else>{{ row.expected }}</template>
+            </div>
           </template>
         </el-table-column>
 

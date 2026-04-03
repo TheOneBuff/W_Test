@@ -296,19 +296,7 @@ async def generate_cases(
 
 ## 输出格式要求【强制】
 1. 仅输出标准JSON数组，无多余文字、无注释、无代码块
-2. 字段固定，不可增减、不可改名：
-[
-    {
-        "模块": "需求所属功能模块名称",
-        "用例标题": "按照命名规范生成的标准标题",
-        "前置条件": "用例执行前必须满足的条件",
-        "测试步骤": ["步骤1","步骤2","步骤3"],
-        "预期结果": ["步骤1对应结果","步骤2对应结果","步骤3对应结果"],
-        "优先级": "P0/P1/P2/P3 四选一",
-        "标签": "功能测试/兼容性测试/易用性测试/性能测试/安全测试/接口测试/冒烟测试",
-        "备注": "测试场景+测试数据+设计方法"
-    }
-]
+2. 字段固定，不可增减、不可改名： module, title, precondition, steps (数组，需要编号), expected(需要编号), priority (P0/P1/P2)。
 3. 测试步骤与预期结果必须一一对应，数量一致
 4. 正向用例占比70%，逆向用例占比30%
 5. 字段内容禁止出现中文括号，避免接口解析失败
@@ -430,11 +418,25 @@ def get_record_detail(
 # --- 4. 导出 Excel (保持不变) ---
 @router.post("/export")
 def export_excel(cases: list[dict]):
-    df = pd.DataFrame(cases)
+    # 处理测试步骤和预期结果，将数组转换为带换行符的字符串
+    processed_cases = []
+    for case in cases:
+        processed_case = case.copy()
+        # 处理测试步骤
+        if isinstance(processed_case.get('steps'), list):
+            processed_case['steps'] = '\n'.join(processed_case['steps'])
+        # 处理预期结果
+        if isinstance(processed_case.get('expected'), list):
+            processed_case['expected'] = '\n'.join(processed_case['expected'])
+        processed_cases.append(processed_case)
+    
+    df = pd.DataFrame(processed_cases)
     rename_map = {
-        "module": "模块", "title": "用例标题", "precondition": "前置条件",
-        "steps": "测试步骤", "expected": "预期结果", "priority": "优先级"
+        "module": "模块", "title": "用例标题", "priority": "优先级",
+        "precondition": "前置条件", "steps": "测试步骤", "expected": "预期结果"
     }
+    # 调整列顺序
+    df = df[["module", "title", "priority", "precondition", "steps", "expected"]]
     df = df.rename(columns=rename_map)
     output = BytesIO()
 
@@ -457,9 +459,9 @@ def export_excel(cases: list[dict]):
         # 3. 设置列宽的同时，应用这个格式
         # set_column(start_col, end_col, width, cell_format)
         worksheet.set_column('A:B', 20, wrap_format)  # 模块、标题
-        worksheet.set_column('C:C', 30, wrap_format)  # 前置条件
-        worksheet.set_column('D:E', 50, wrap_format)  # 步骤、预期结果 (这两列内容最长，必须换行)
-        worksheet.set_column('F:F', 10, wrap_format)  # 优先级
+        worksheet.set_column('C:C', 10, wrap_format)  # 优先级
+        worksheet.set_column('D:D', 30, wrap_format)  # 前置条件
+        worksheet.set_column('E:F', 50, wrap_format)  # 步骤、预期结果 (这两列内容最长，必须换行)
 
     output.seek(0)
     return StreamingResponse(
