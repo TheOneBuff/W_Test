@@ -21,12 +21,16 @@
 
       <div class="action-group">
         <el-button @click="init" :icon="Refresh" circle />
+        <el-button type="primary" :disabled="selectedRows.length === 0" @click="handleBatchRun">
+          批量运行 ({{ selectedRows.length }})
+        </el-button>
         <el-button type="primary" @click="handleCreate" :icon="Plus">新建用例</el-button>
       </div>
     </div>
 
     <el-card shadow="never" class="table-card" :body-style="{ padding: '0' }">
-      <el-table :data="pagedData" v-loading="loading" style="width: 100%">
+      <el-table :data="pagedData" v-loading="loading" style="width: 100%" @selection-change="handleSelectionChange">
+        <el-table-column type="selection" width="55" />
         <el-table-column prop="id" label="ID" width="80" align="center" class-name="text-gray" />
 
         <el-table-column prop="name" label="用例名称" min-width="200">
@@ -116,6 +120,11 @@ const projects = ref<any[]>([])
 const loading = ref(false)
 const filterProjectId = ref<number | null>(null)
 const searchKeyword = ref('')
+const selectedRows = ref<any[]>([])
+
+const handleSelectionChange = (val: any[]) => {
+  selectedRows.value = val
+}
 
 // 状态文本映射
 const statusText: any = {
@@ -247,6 +256,29 @@ const handleAndroidRun = async (row: any) => {
 
 const handleCreate = () => router.push('/testcases/create')
 const handleEdit = (id: number) => router.push(`/testcases/edit/${id}`)
+const handleBatchRun = async () => {
+  const envId = envStore.currentEnvId
+  const caseIds = selectedRows.value.map(row => row.id)
+  
+  try {
+    await ElMessageBox.confirm(
+      `确定要批量运行 ${caseIds.length} 个测试用例吗？`, 
+      '批量运行', 
+      {
+        confirmButtonText: '运行',
+        cancelButtonText: '取消',
+        type: 'info'
+      }
+    )
+    
+    const params = envId ? { env_id: envId } : {}
+    const res = await axios.post('/testcases/batch-run', { case_ids: caseIds }, { params })
+
+    
+    ElMessage.success(`任务已提交，共 ${caseIds.length} 个用例`)
+  } catch (e) { /* Cancelled */ }
+}
+
 const handleDelete = async (id: number) => {
   try {
     await axios.delete(`/testcases/${id}`)

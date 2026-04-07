@@ -1,6 +1,7 @@
 import logging
+import uuid
 from datetime import datetime, timedelta
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Body, Query
 from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional, Dict, Any
 from .. import models, schemas
@@ -329,4 +330,84 @@ def debug_test_case(
 ):
     # 复用 run_test_case 的逻辑
     return run_test_case(case_id, env_id, db, current_user)
+
+
+# 10. 批量运行测试用例
+@router.post("/batch-run")
+def batch_run_testcases(
+    request_data: dict = Body(..., description="请求数据"),
+    env_id: Optional[int] = Query(None, description="环境ID"),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    case_ids = request_data.get('case_ids', [])
+    if not isinstance(case_ids, list):
+        raise HTTPException(status_code=400, detail="case_ids 必须是数组")
+    """
+    批量运行测试用例
+    """
+    # 创建批次记录
+    batch_id = str(uuid.uuid4())
+    batch_records = []
+    
+    # 获取 LLM 配置
+    llm_config = db.query(models.LLMConfig).filter(
+        models.LLMConfig.user_id == current_user.id,
+        models.LLMConfig.is_active_exec == True
+    ).first()
+    
+    if not llm_config:
+        raise HTTPException(status_code=400, detail="请先在'大模型配置'中激活一个'执行用例模型'")
+    
+    # 获取环境变量
+    env_vars = {}
+    if env_id:
+        env_obj = db.query(models.Environment).filter(models.Environment.id == env_id).first()
+        if env_obj:
+            import json
+            try:
+                env_vars = json.loads(env_obj.variables)
+            except:
+                pass
+    
+    # 准备 LLM 配置
+    llm_env_vars = {
+        "api_key": llm_config.api_key,
+        "model_name": llm_config.model_name or "gpt-4o",
+        "base_url": llm_config.base_url or "",
+        "provider": llm_config.provider or "openai",
+        "model_family": llm_config.model_family,
+        "custom_env": env_vars
+    }
+    
+    for case_id in case_ids:
+        # 检查用例权限
+        case = db.query(models.TestCase).filter(models.TestCase.id == case_id).first()
+        if not case:
+            continue
+        
+        check_case_permission(case, current_user)
+        
+        # 为每个测试用例创建报告记录
+        new_report = models.TestReport(
+            test_case_id=case_id,
+            status=models.TaskStatus.PENDING,
+            script_content=case.script_content,
+            start_time=datetime.now(),
+            batch_id=batch_id
+        )
+        db.add(new_report)
+        batch_records.append(new_report)
+    
+    db.commit()
+    
+    # 为每个报告创建 Celery 任务
+    for report in batch_records:
+        run_midscene_task.delay(report.id, llm_env_vars)
+    
+    return {
+        "status": "success",
+        "batch_id": batch_id,
+        "total_cases": len(batch_records)
+    }
 

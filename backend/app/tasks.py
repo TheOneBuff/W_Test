@@ -3,7 +3,7 @@ import shutil
 import subprocess
 import time
 from datetime import datetime, timedelta
-from .core.logging import app_logger as logging
+from .core.logging import app_logger as logging, setup_logging
 from celery import Celery
 from .database import SessionLocal
 from .models import TestReport, TaskStatus, KnowledgeDocument
@@ -21,6 +21,8 @@ def run_midscene_task(report_id: int, llm_config: dict):
     """
     执行 Midscene 任务 (增强版实时日志)
     """
+    # 确保工作进程使用正确的日志配置
+    setup_logging()
     logging.info(f"🚀 [任务开始] 报告编号: {report_id}")
     db = SessionLocal()
     report = db.query(TestReport).filter(TestReport.id == report_id).first()
@@ -194,6 +196,8 @@ def process_knowledge_file(doc_id: int, llm_config: dict):
     """
     后台任务：处理知识库文件上传与向量化
     """
+    # 确保工作进程使用正确的日志配置
+    setup_logging()
     db = SessionLocal()
     try:
         doc = db.query(KnowledgeDocument).filter(KnowledgeDocument.id == doc_id).first()
