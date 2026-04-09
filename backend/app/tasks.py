@@ -148,7 +148,7 @@ def run_midscene_task(report_id: int, llm_config: dict):
         # --- 结果判定 ---
         if process.returncode == 0:
             report.status = TaskStatus.SUCCESS
-            logging.info("Task finished successfully.")
+            logging.info("任务执行成功完成。")
 
             if found_html:
                 report.report_path = found_html
@@ -213,7 +213,7 @@ def process_knowledge_file(doc_id: int, llm_config: dict):
         base_url = llm_config.get("base_url")
         model_name = llm_config.get("model_name")
 
-        logging.info(f"Task Start: Processing doc {doc_id} with model {model_name}")
+        logging.info(f"任务开始：处理文档 {doc_id}，使用模型 {model_name}")
 
         # 2. 初始化 RAG 服务
         rag = RagService(
@@ -240,7 +240,7 @@ def process_knowledge_file(doc_id: int, llm_config: dict):
     except Exception as e:
         # [核心修复] 回滚事务，确保后续的状态更新能成功写入
         db.rollback()
-        logging.error(f"Task Failed: {str(e)}")
+        logging.error(f"任务失败：{str(e)}")
 
         # 重新获取对象（rollback 后 session 可能会清理掉之前的对象状态）
         doc = db.query(KnowledgeDocument).filter(KnowledgeDocument.id == doc_id).first()

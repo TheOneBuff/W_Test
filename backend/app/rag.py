@@ -69,7 +69,7 @@ class SimpleOpenAIEmbeddings(Embeddings):
             return [item['embedding'] for item in sorted_data]
 
         except Exception as e:
-            logging.error(f"SimpleOpenAIEmbeddings Error: {str(e)}")
+            logging.error(f"SimpleOpenAIEmbeddings 错误: {str(e)}")
             raise e
 
     def embed_query(self, text: str) -> List[float]:
@@ -172,7 +172,7 @@ class RagService:
                     logging.info(f"👀 [Debug] 库中数据路径示例: {sample}")
 
         except Exception as e:
-            logging.error(f"❌ [Delete] 删除逻辑出错: {e}", exc_info=True)
+            logging.error(f"❌ [删除] 删除逻辑出错: {e}", exc_info=True)
 
     def process_document(self, file_path: str):
         """解析文件并存入向量库"""
@@ -246,7 +246,7 @@ class RagService:
                     self.vector_db.add_documents(batch)
                     logging.info(f"   ... 已处理批次 {i} 到 {i + len(batch)}")
                 except Exception as e:
-                    logging.error(f"❌ 批次插入失败 (Index {i}): {e}")
+                    logging.error(f"❌ 批次插入失败 (索引 {i}): {e}")
                     raise e
 
         except Exception as e:

@@ -123,7 +123,7 @@ def search_knowledge_base(
         return {"status": "success", "results": results}
 
     except Exception as e:
-        print(f"Search failed: {e}")
+        print(f"搜索失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -195,7 +195,7 @@ async def generate_cases(
                     [f"--- 参考规则/用例 {i + 1} ---\n{d.page_content}" for i, d in enumerate(docs)])
                 print("rag查询")
             except Exception as e:
-                print(f"RAG search failed: {e}")
+                print(f"RAG搜索失败: {e}")
                 rag_context = "（暂无历史参考数据）"
         user_content = []
         messages = None
@@ -376,7 +376,7 @@ async def generate_cases(
         new_record.status = "success"
 
     except Exception as e:
-        logging.error(f"Generation failed: {e}")
+        logging.error(f"生成失败: {e}")
         new_record.status = "failed"
         new_record.error_msg = str(e)
     finally:

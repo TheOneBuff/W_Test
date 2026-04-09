@@ -72,6 +72,11 @@
             />
           </template>
         </el-table-column>
+        <el-table-column prop="file_path" label="文件路径" min-width="300">
+          <template #default="{ row }">
+            <span class="file-path">{{ row.file_path }}</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="file_type" label="文件类型" width="120" />
         <el-table-column prop="file_size" label="文件大小" width="100" align="center">
           <template #default="{ row }">
@@ -276,5 +281,12 @@ onMounted(async () => {
   font-size: 12px;
   color: #999;
   margin-top: 8px;
+}
+
+.file-path {
+  font-family: monospace;
+  font-size: 12px;
+  color: #666;
+  word-break: break-all;
 }
 </style>
