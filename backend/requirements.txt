@@ -2,7 +2,7 @@
 fastapi==0.109.0
 uvicorn==0.27.0
 python-multipart
-sqlalchemy==2.0.25
+sqlalchemy==2.0.49
 pymysql
 pydantic==2.5.3
 pydantic-settings
@@ -41,4 +41,3 @@ python-dateutil      # 时间处理标准库
 
 #-- 数据库迁移
 alembic==1.18.4
-SQLAlchemy==2.0.49
