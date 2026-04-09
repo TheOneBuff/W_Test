@@ -11,3 +11,43 @@ npm run dev
 
 
 表test_reports 要手动改一下类型   text 改成 longtext
+
+
+## 数据库迁移使用说明
+
+### 1. 安装依赖
+```bash
+# 已在 requirements.txt 中添加
+# alembic==1.18.4
+```
+
+### 2. 生成迁移文件
+当修改 models.py 中的模型结构后，运行以下命令生成迁移文件：
+```bash
+docker-compose exec backend python -m alembic revision --autogenerate -m "描述迁移内容"
+```
+
+### 3. 自动执行迁移
+应用启动时会自动执行所有未应用的迁移，无需手动操作。
+
+### 4. 手动执行迁移
+如需手动执行迁移，可运行：
+```bash
+docker-compose exec backend python run_migrations.py
+```
+
+### 5. 查看迁移状态
+```bash
+docker-compose exec backend python -m alembic current
+```
+
+### 6. 回滚迁移
+如需回滚到之前的版本：
+```bash
+docker-compose exec backend python -m alembic downgrade <revision_id>
+```
+
+### 迁移文件管理
+- 迁移文件存储在 `backend/alembic/versions` 目录中
+- 每个迁移文件包含 `upgrade()` 和 `downgrade()` 方法
+- 迁移文件需要提交到版本控制中，确保团队协作时的一致性

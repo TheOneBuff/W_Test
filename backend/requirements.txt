@@ -38,3 +38,7 @@ bcrypt==4.0.1        # 锁定版本以解决常见的 passlib 依赖报错
 
 # --- 其他工具 ---
 python-dateutil      # 时间处理标准库
+
+#-- 数据库迁移
+alembic==1.18.4
+SQLAlchemy==2.0.49
