@@ -51,6 +51,11 @@ const router = createRouter({
           name: 'ScheduledTasks',
           component: () => import('../views/ScheduledTasks.vue')
         },
+        {
+          path: 'notifications',
+          name: 'NotificationManage',
+          component: () => import('../views/NotificationManage.vue')
+        },
         // --- 测试用例管理 ---
         {
           path: 'testcases',

@@ -69,6 +69,8 @@ def init():
                             component="EnvManage"))
                 db.add(Menu(title="定时任务", path="/periodic", icon="AlarmClock", sort=5, parent_id=m_system.id,
                             component="ScheduledTasks"))
+                db.add(Menu(title="通知管理", path="/notifications", icon="Bell", sort=6, parent_id=m_system.id,
+                            component="NotificationManage"))
 
             db.commit()
             print("Menus initialized successfully.")

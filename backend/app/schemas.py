@@ -221,3 +221,39 @@ class PeriodicTaskOut(PeriodicTaskBase):
 
     class Config:
         from_attributes = True
+
+
+class NotificationConfigBase(BaseModel):
+    name: str
+    channel: str
+    is_enabled: bool = True
+    config_json: Optional[dict] = None
+    events: Optional[list] = None
+    is_default: bool = False
+
+
+class NotificationConfigCreate(NotificationConfigBase):
+    pass
+
+
+class NotificationConfigUpdate(NotificationConfigBase):
+    pass
+
+
+class NotificationConfigOut(NotificationConfigBase):
+    id: int
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class NotificationTestRequest(BaseModel):
+    config_id: int
+    test_message: Optional[str] = "这是一条测试通知"
+
+
+class NotificationTestResponse(BaseModel):
+    success: bool
+    message: str

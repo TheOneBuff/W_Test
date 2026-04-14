@@ -4,8 +4,39 @@ from ..database import get_db
 from .. import models, schemas
 from typing import List
 from .auth import get_current_user
+import requests
 
 router = APIRouter()
+
+
+def test_openai_connection(base_url: str, api_key: str, model_name: str) -> tuple:
+    """测试 OpenAI 兼容 API 连接"""
+    try:
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "model": model_name,
+            "messages": [{"role": "user", "content": "Hi"}],
+            "max_tokens": 10
+        }
+        resp = requests.post(
+            f"{base_url.rstrip('/')}/chat/completions",
+            json=payload,
+            headers=headers,
+            timeout=30
+        )
+        if resp.status_code == 200:
+            return True, "连接成功"
+        else:
+            return False, f"请求失败: {resp.status_code} - {resp.text[:100]}"
+    except requests.exceptions.Timeout:
+        return False, "请求超时"
+    except requests.exceptions.ConnectionError:
+        return False, "无法连接到服务器"
+    except Exception as e:
+        return False, f"错误: {str(e)}"
 
 
 # 获取所有模型配置
@@ -129,3 +160,39 @@ def update_llm_config(
     # Pydantic 的 response_model 会自动处理返回数据，
     # 只要 schemas.LLMConfigOut 定义了 api_key_masked 且有计算逻辑/getter
     return db_config
+
+
+@router.post("/{config_id}/test")
+def test_llm_config(
+        config_id: int,
+        db: Session = Depends(get_db),
+        current_user: models.User = Depends(get_current_user)
+):
+    config = db.query(models.LLMConfig).filter(
+        models.LLMConfig.id == config_id,
+        models.LLMConfig.user_id == current_user.id
+    ).first()
+
+    if not config:
+        raise HTTPException(status_code=404, detail="Config not found")
+
+    if not config.api_key:
+        return {"success": False, "message": "API Key 未配置"}
+
+    base_url = config.base_url or "https://api.openai.com/v1"
+    if not config.provider or config.provider == "openai":
+        base_url = config.base_url or "https://api.openai.com/v1"
+    elif config.provider == "ollama":
+        base_url = config.base_url or "http://localhost:11434/v1"
+    elif config.provider == "deepseek":
+        base_url = config.base_url or "https://api.deepseek.com/v1"
+    elif config.provider == "azure_openai":
+        base_url = config.base_url or ""
+
+    success, message = test_openai_connection(
+        base_url,
+        config.api_key,
+        config.model_name
+    )
+
+    return {"success": success, "message": message}

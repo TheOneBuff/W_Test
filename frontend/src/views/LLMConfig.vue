@@ -128,8 +128,9 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="操作" width="120" align="right">
+        <el-table-column label="操作" width="150" align="right">
           <template #default="{ row }">
+            <el-button link type="success" @click="handleTest(row)">测试</el-button>
             <el-button link type="primary" @click="openDialog(row)">编辑</el-button>
             <el-button link type="danger" @click="handleDelete(row)">删除</el-button>
           </template>
@@ -349,6 +350,20 @@ const handleDelete = (row: LLMConfig) => {
     ElMessage.success('删除成功')
     fetchList()
   })
+}
+
+const handleTest = async (row: LLMConfig) => {
+  try {
+    ElMessage.info('正在测试连接...')
+    const res = await axios.post(`/llm/${row.id}/test`)
+    if (res.data.success) {
+      ElMessage.success(res.data.message || '连接成功')
+    } else {
+      ElMessage.warning(res.data.message || '连接失败')
+    }
+  } catch (e: any) {
+    ElMessage.error(e.response?.data?.detail || '测试失败')
+  }
 }
 
 onMounted(fetchList)

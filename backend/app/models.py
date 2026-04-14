@@ -298,3 +298,24 @@ class Material(Base):
         primaryjoin="Project.id == Material.project_id",
         foreign_keys=[project_id]
     )
+
+
+class NotificationConfig(Base):
+    __tablename__ = "notification_configs"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    name = Column(String(100), nullable=False)
+
+    channel = Column(String(20), nullable=False)  # feishu, weixin, email
+
+    is_enabled = Column(Boolean, default=True)
+
+    config_json = Column(JSON, nullable=True)
+
+    events = Column(JSON, nullable=True)  # ["task_success", "task_failed"]
+
+    is_default = Column(Boolean, default=False)
+
+    created_at = Column(DateTime, default=datetime.now())
+    updated_at = Column(DateTime, default=datetime.now(), onupdate=datetime.now())
