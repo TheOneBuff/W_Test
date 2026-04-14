@@ -29,8 +29,8 @@
     </div>
 
     <el-card shadow="never" class="table-card" :body-style="{ padding: '0' }">
-      <el-table :data="pagedData" v-loading="loading" style="width: 100%" @selection-change="handleSelectionChange">
-        <el-table-column type="selection" width="55" />
+      <el-table :data="pagedData" v-loading="loading" style="width: 100%" @selection-change="handleSelectionChange" row-key="id">
+        <el-table-column type="selection" width="55" reserve-selection />
         <el-table-column prop="id" label="ID" width="80" align="center" class-name="text-gray" />
 
         <el-table-column prop="name" label="用例名称" min-width="200">
@@ -69,13 +69,19 @@
             <el-button type="info" link @click="handleFastRun(row)">运行</el-button>
 
 <!--            <el-button-->
-<!--              type="success"-->
+<!--              type="success"
+-->
 <!--              link-->
-<!--              :loading="row.androidLoading"-->
-<!--              @click="handleAndroidRun(row)"-->
-<!--            >-->
-<!--              <el-icon class="el-icon&#45;&#45;left"><Cellphone /></el-icon>-->
-<!--              Android-->
+<!--              :loading="row.androidLoading"
+-->
+<!--              @click="handleAndroidRun(row)"
+-->
+<!--            >
+-->
+<!--              <el-icon class="el-icon&#45;&#45;left"><Cellphone /></el-icon>
+-->
+<!--              Android
+-->
 <!--            </el-button>-->
 
             <el-divider direction="vertical" />
@@ -104,7 +110,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useEnvStore } from '@/stores/env'
 import axios from '@/utils/request'
