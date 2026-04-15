@@ -344,7 +344,7 @@ async def generate_cases(
             model=chat_config.model_name,
             messages=messages,
             temperature=0.2,
-            max_tokens=2500,
+            max_tokens=8192,
             timeout=600,
             extra_body={"enable_thinking": False, "verbose": False},
         )

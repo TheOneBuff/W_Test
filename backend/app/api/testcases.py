@@ -7,7 +7,7 @@ from typing import List, Optional, Dict, Any
 from .. import models, schemas
 from ..database import get_db
 from .auth import get_current_user
-from ..tasks import run_midscene_task
+from ..tasks import run_midscene_task, notify_batch_result
 from sqlalchemy import desc, true
 
 router = APIRouter()
@@ -404,6 +404,10 @@ def batch_run_testcases(
     # 为每个报告创建 Celery 任务
     for report in batch_records:
         run_midscene_task.delay(report.id, llm_env_vars)
+    
+    # 调度批量任务完成通知
+    # notify_batch_result 任务会检查所有任务是否完成，只有全部完成后才发送飞书通知
+    notify_batch_result.delay(batch_id)
     
     return {
         "status": "success",

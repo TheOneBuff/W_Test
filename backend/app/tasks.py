@@ -6,14 +6,151 @@ from datetime import datetime, timedelta
 from .core.logging import app_logger as logging, setup_logging
 from celery import Celery
 from .database import SessionLocal
+from sqlalchemy.orm import Session, joinedload
 from .models import TestReport, TaskStatus, KnowledgeDocument
+from .models import TestCase, NotificationConfig
 from .rag import RagService
+from .api.notification import send_feishu_notification
 
 # 配置 Celery
 celery_app = Celery('midscene_worker', broker='redis://redis:6379/0')
 
 # [修改] 使用 /data 目录，配合 Docker 的 volume 挂载，防止污染 backend 代码目录
 REPORT_DIR = "/data/reports"
+
+
+def _check_batch_and_notify(batch_id: str):
+    """
+    检查批次是否全部完成，完成则发送飞书通知
+    """
+    logging.info(f"[通知调试] _check_batch_and_notify 开始执行，batch_id={batch_id}")
+    db = SessionLocal()
+    try:
+        # 查询同批次所有报告
+        reports = db.query(TestReport).options(
+            joinedload(TestReport.test_case)
+        ).filter(TestReport.batch_id == batch_id).all()
+        logging.info(f"[通知调试] 查询到报告数量: {len(reports) if reports else 0}")
+        
+        if not reports:
+            logging.warning(f"[通知调试] 批次 {batch_id} 没有报告")
+            return
+        
+        # 检查是否全部完成
+        pending_or_running = [r for r in reports if r.status in (TaskStatus.PENDING, TaskStatus.RUNNING)]
+        if pending_or_running:
+            logging.warning(f"[通知调试] 批次 {batch_id} 还有 {len(pending_or_running)} 个任务未完成")
+            return  # 还有任务在执行，不发送
+        
+        # 获取默认的飞书通知配置
+        feishu_config = db.query(NotificationConfig).filter(
+            NotificationConfig.channel == "feishu",
+            NotificationConfig.is_enabled == True,
+            NotificationConfig.is_default == True
+        ).first()
+        logging.info(f"[通知调试] 查找飞书配置: {'找到' if feishu_config else '未找到'}")
+        
+        if not feishu_config:
+            logging.warning(f"[通知调试] 批次 {batch_id} 没有找到启用的默认飞书配置")
+            return
+        
+        webhook_url = feishu_config.config_json.get("webhook_url") if feishu_config.config_json else None
+        logging.info(f"[通知调试] webhook_url: {webhook_url}")
+        if not webhook_url:
+            logging.warning(f"[通知调试] webhook_url 为空")
+            return
+        
+        # 获取用例名
+        success_reports = [r for r in reports if r.status == TaskStatus.SUCCESS]
+        failed_reports = [r for r in reports if r.status == TaskStatus.FAILED]
+        
+        success_names = []
+        failed_names = []
+        for r in success_reports:
+            if r.test_case:
+                success_names.append(r.test_case.name)
+        for r in failed_reports:
+            if r.test_case:
+                failed_names.append(r.test_case.name)
+
+        success_count = len(success_names)
+        failed_count = len(failed_names)
+        total = len(reports)
+
+        # 构造通知内容
+        summary = f"测试执行完成：{success_count} 成功 / {failed_count} 失败"
+        details = f"总任务数: {total}"
+
+        if success_names:
+            details += f"\n✅ 成功用例 ({success_count}):\n- " + "\n- ".join(success_names[:10])
+            if len(success_names) > 10:
+                details += f"\n  ... 还有 {len(success_names) - 10} 个"
+
+        if failed_names:
+            details += f"\n❌ 失败用例 ({failed_count}):\n- " + "\n- ".join(failed_names[:10])
+            if len(failed_names) > 10:
+                details += f"\n  ... 还有 {len(failed_names) - 10} 个"
+
+        logging.info(f"[通知调试] 准备发送飞书通知 - summary: {summary}")
+        logging.info(f"[通知调试] 准备发送飞书通知 - details: {details}")
+        
+        # 发送飞书通知
+        result = send_feishu_notification(webhook_url, summary, details)
+        logging.info(f"[通知调试] send_feishu_notification 返回结果: {result}")
+        
+        if result:
+            logging.info(f"[通知调试] ✅ 飞书通知发送成功: {summary}")
+        else:
+            logging.error(f"[通知调试] ❌ 飞书通知发送失败: {summary}")
+
+    except Exception as e:
+        logging.error(f"[通知调试] 发送通知失败: {e}", exc_info=True)
+    finally:
+        db.close()
+
+
+@celery_app.task
+def notify_batch_result(batch_id: str):
+    """
+    批量任务完成后，发送飞书通知
+    """
+    setup_logging()
+    logging.info(f"[通知调试] 开始处理批次通知，batch_id={batch_id}")
+    db = SessionLocal()
+    try:
+        # 查询该批次下的所有报告，预加载 test_case
+        reports = db.query(TestReport).options(
+            joinedload(TestReport.test_case)
+        ).filter(TestReport.batch_id == batch_id).all()
+        logging.info(f"[通知调试] 查询到报告数量: {len(reports) if reports else 0}")
+        
+        if not reports:
+            logging.warning(f"[通知调试] 批次 {batch_id} 没有找到任何报告")
+            return
+
+        total = len(reports)
+        success_reports = [r for r in reports if r.status == TaskStatus.SUCCESS]
+        failed_reports = [r for r in reports if r.status == TaskStatus.FAILED]
+        pending_reports = [r for r in reports if r.status == TaskStatus.PENDING]
+        running_reports = [r for r in reports if r.status == TaskStatus.RUNNING]
+        running = len(pending_reports) + len(running_reports)
+
+        logging.info(f"[通知调试] 批次状态统计 - 总数: {total}, 成功: {len(success_reports)}, 失败: {len(failed_reports)}, 待处理: {len(pending_reports)}, 运行中: {len(running_reports)}")
+
+        # 如果还有任务在执行中，等待后重新调度自己
+        if running > 0:
+            logging.info(f"[通知调试] 批次 {batch_id} 仍有 {running} 个任务在执行，60秒后重新检查")
+            notify_batch_result.apply_async(args=[batch_id], countdown=60)
+            return
+
+        logging.info(f"[通知调试] 批次 {batch_id} 所有任务已完成，开始发送通知")
+        # 检查批次完成并发送通知
+        _check_batch_and_notify(batch_id)
+
+    except Exception as e:
+        logging.error(f"[通知调试] notify_batch_result 执行异常: {e}", exc_info=True)
+    finally:
+        db.close()
 
 
 @celery_app.task
