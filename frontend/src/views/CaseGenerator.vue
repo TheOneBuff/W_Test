@@ -40,6 +40,31 @@
             class="req-input"
           />
 
+          <div class="skill-section" style="margin-top: 16px;">
+            <div class="upload-header">
+              <span>选择技能 (可选)</span>
+              <el-link type="primary" :underline="false" @click="$router.push('/skills')">管理技能</el-link>
+            </div>
+            <el-select
+              v-model="selectedSkillId"
+              placeholder="使用默认提示词"
+              clearable
+              style="width: 100%"
+            >
+              <el-option
+                v-for="skill in availableSkills"
+                :key="skill.id"
+                :label="skill.name"
+                :value="skill.id"
+              >
+                <span>{{ skill.name }}</span>
+                <el-tag size="small" type="info" style="margin-left: 8px;">
+                  {{ skill.skill_type === 'image' ? '图片' : skill.skill_type === 'text' ? '文本' : '通用' }}
+                </el-tag>
+              </el-option>
+            </el-select>
+          </div>
+
           <div class="upload-section">
             <div class="upload-header">
               <span>参考图片 (UI/原型图)</span>
@@ -185,6 +210,7 @@ import {
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import dayjs from 'dayjs'
+import * as skillApi from '../api/skills'
 
 const router = useRouter()
 
@@ -194,6 +220,8 @@ const submitting = ref(false)
 const loadingRecords = ref(false)
 const records = ref<any[]>([])
 const fileList = ref<any[]>([])
+const availableSkills = ref<any[]>([])
+const selectedSkillId = ref<number | null>(null)
 
 // 模型状态
 const currentGenModel = ref<any>(null) // 生成模型
@@ -259,6 +287,17 @@ const fetchActiveModel = async () => {
 const handleSubmit = async () => {
   if (!currentGenModel.value) return ElMessage.error('服务不可用')
   if (!requirement.value.trim()) return ElMessage.warning('请输入需求描述')
+  if (!selectedSkillId.value) return ElMessage.warning('请选择一个技能（提示词）')
+
+  // 校验：如果上传了图片，只能选择图片或通用类型的技能
+  const hasImage = isMultimodal.value && (fileList.value.length > 0 || reusedImagePath.value)
+  if (hasImage && selectedSkillId.value) {
+    const selectedSkill = availableSkills.value.find(s => s.id === selectedSkillId.value)
+    if (selectedSkill && selectedSkill.skill_type === 'text') {
+      ElMessage.error('上传了图片时，不能选择"文本"类型的技能，请选择"图片"或"通用"类型的技能')
+      return
+    }
+  }
 
   submitting.value = true
   const formData = new FormData()
@@ -273,6 +312,11 @@ const handleSubmit = async () => {
     }
   }
 
+  // 技能 ID：如果选择了技能，添加到表单中
+  if (selectedSkillId.value) {
+    formData.append('skill_id', String(selectedSkillId.value))
+  }
+
   try {
     const res = await axios.post('/knowledge/generate', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
@@ -284,6 +328,7 @@ const handleSubmit = async () => {
       requirement.value = ''
       fileList.value = []
       reusedImagePath.value = ''
+      selectedSkillId.value = null
       await fetchRecords()
     } else {
       ElMessage.error(res.data.msg || '提交失败')
@@ -292,6 +337,17 @@ const handleSubmit = async () => {
     ElMessage.error(e.response?.data?.detail || '网络异常')
   } finally {
     submitting.value = false
+  }
+}
+
+// 加载所有可用技能
+const loadAvailableSkills = async () => {
+  try {
+    const res = await skillApi.getSkills({ is_active: true })
+    availableSkills.value = res.data || []
+  } catch (error) {
+    console.error('加载技能失败:', error)
+    availableSkills.value = []
   }
 }
 
@@ -312,6 +368,7 @@ const handleReuse = (row: any) => {
     reusedImagePath.value = ''
     fileList.value = []
   }
+  
   ElMessage.success('内容已回填')
 }
 
@@ -347,6 +404,7 @@ const formatDate = (str: string) => str ? dayjs(str).format('MM-DD HH:mm') : '-'
 onMounted(() => {
   fetchActiveModel()
   fetchRecords()
+  loadAvailableSkills()
 })
 </script>
 

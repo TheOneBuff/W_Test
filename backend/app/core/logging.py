@@ -10,15 +10,18 @@ os.makedirs(LOG_DIR, exist_ok=True)
 # 全局标志，确保 setup_logging 只执行一次
 _logging_initialized = False
 
-def setup_logging():
+def setup_logging(force=False):
     """
     配置日志记录器
     确保所有进程（包括 Celery 工作进程）使用统一的日志配置
+    
+    Args:
+        force: 如果为 True，即使已经初始化也重新配置（用于 worker 进程）
     """
     global _logging_initialized
     
-    # 如果已经初始化过，跳过重复配置
-    if _logging_initialized:
+    # 如果已经初始化过，跳过重复配置（除非 force=True）
+    if _logging_initialized and not force:
         return logging.getLogger()
     
     # 配置根日志记录器
@@ -60,11 +63,16 @@ def setup_logging():
     # 为特定模块配置日志
     logging.getLogger("uvicorn").setLevel(logging.WARNING)
     logging.getLogger("sqlalchemy").setLevel(logging.WARNING)
-    logging.getLogger("celery").setLevel(logging.INFO)
-
-    # 确保 Celery 任务使用我们的日志配置
-    for logger_name in ["celery", "celery.task", "celery.worker"]:
-        celery_logger = logging.getLogger(logger_name)
+    
+    # 配置 Celery 日志
+    celery_loggers = [
+        logging.getLogger("celery"),
+        logging.getLogger("celery.task"),
+        logging.getLogger("celery.worker"),
+        logging.getLogger("celery.worker.strategy"),
+    ]
+    
+    for celery_logger in celery_loggers:
         celery_logger.setLevel(logging.INFO)
         # 清除 Celery 默认的处理器
         for handler in celery_logger.handlers[:]:  # 使用切片复制避免迭代时修改

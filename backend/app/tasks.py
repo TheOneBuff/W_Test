@@ -114,7 +114,7 @@ def notify_batch_result(batch_id: str):
     """
     批量任务完成后，发送飞书通知
     """
-    setup_logging()
+    setup_logging(force=True)
     logging.info(f"[通知调试] 开始处理批次通知，batch_id={batch_id}")
     db = SessionLocal()
     try:
@@ -158,8 +158,8 @@ def run_midscene_task(report_id: int, llm_config: dict):
     """
     执行 Midscene 任务 (增强版实时日志)
     """
-    # 确保工作进程使用正确的日志配置
-    setup_logging()
+    # 确保工作进程使用正确的日志配置（强制重新配置）
+    setup_logging(force=True)
     logging.info(f"🚀 [任务开始] 报告编号: {report_id}")
     db = SessionLocal()
     report = db.query(TestReport).filter(TestReport.id == report_id).first()

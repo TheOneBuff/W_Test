@@ -104,6 +104,12 @@ const router = createRouter({
           meta: { title: '用例生成' }
         },
         {
+          path: '/skills',
+          name: 'SkillManage',
+          component: () => import('../views/SkillManage.vue'),
+          meta: { title: '技能管理' }
+        },
+        {
           path: '/tools/ai-diff',
           name: 'AiDiff',
           component: () => import('../views/AiDiff.vue'), // 动态加载

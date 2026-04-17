@@ -41,6 +41,8 @@ async def upload_knowledge(
         db: Session = Depends(get_db),
         current_user: models.User = Depends(get_current_user)
 ):
+    logging.info(f"[知识库上传] 用户 {current_user.username} 开始上传文件: {file.filename}")
+    
     # 1. 第一步：先检查是否有激活的 Embedding 模型
     llm_config = db.query(models.LLMConfig).filter(
         models.LLMConfig.user_id == current_user.id,
@@ -48,16 +50,24 @@ async def upload_knowledge(
     ).first()
 
     if not llm_config:
+        logging.warning(f"[知识库上传] 用户 {current_user.username} 未配置激活的 Embedding 模型")
         raise HTTPException(status_code=400, detail="请先在配置页激活一个用途为'文本对话(Chat)'的模型用于向量化")
+    
+    logging.info(f"[知识库上传] 找到激活的 Embedding 模型: {llm_config.model_name}")
 
     # 2. 第二步：检查通过后，再保存文件
     os.makedirs(UPLOAD_DIR, exist_ok=True)
     file_path = os.path.join(UPLOAD_DIR, file.filename)
+    logging.info(f"[知识库上传] 文件保存路径: {file_path}")
 
     # 异步读取和写入文件
     content = await file.read()
+    file_size = len(content)
+    logging.info(f"[知识库上传] 文件大小: {file_size} bytes")
+
     with open(file_path, "wb") as f:
         f.write(content)
+    logging.info(f"[知识库上传] 文件写入成功")
 
     # 3. 第三步：创建数据库记录
     new_doc = models.KnowledgeDocument(
@@ -69,6 +79,7 @@ async def upload_knowledge(
     db.add(new_doc)
     db.commit()
     db.refresh(new_doc)
+    logging.info(f"[知识库上传] 数据库记录创建成功，文档ID: {new_doc.id}")
 
     # 4. 第四步：触发后台任务
     llm_config_dict = {
@@ -76,8 +87,10 @@ async def upload_knowledge(
         "base_url": llm_config.base_url,
         "model_name": llm_config.model_name,
     }
+    logging.info(f"[知识库上传] 触发后台处理任务，任务ID: {new_doc.id}")
 
     process_knowledge_file.delay(new_doc.id, llm_config_dict)
+    logging.info(f"[知识库上传] 后台任务已提交")
 
     return {"status": "success", "id": new_doc.id}
 
@@ -123,7 +136,7 @@ def search_knowledge_base(
         return {"status": "success", "results": results}
 
     except Exception as e:
-        print(f"搜索失败: {e}")
+        logging.error(f"[知识库检索] 搜索失败: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -135,9 +148,14 @@ async def generate_cases(
         requirement: str = Form(...),
         image_file: UploadFile = File(None),
         reuse_image_path: str = Form(None),
+        skill_id: int = Form(None),
         db: Session = Depends(get_db),
         current_user: models.User = Depends(get_current_user)
 ):
+    logging.info(f"[用例生成] ========== 开始用例生成任务 ==========")
+    logging.info(f"[用例生成] 用户: {current_user.username}, 需求长度: {len(requirement)}")
+    logging.info(f"[用例生成] 图片上传: {'是' if image_file else '否'}, 复用路径: {reuse_image_path}, 技能ID: {skill_id}")
+    
     # --- A. 图片处理 ---
     final_image_path = None
     if image_file:
@@ -145,13 +163,19 @@ async def generate_cases(
         ext = image_file.filename.split('.')[-1]
         new_filename = f"{uuid.uuid4()}.{ext}"
         final_image_path = os.path.join(UPLOAD_DIR, new_filename)
+        logging.info(f"[用例生成] 处理上传图片: {image_file.filename} -> {final_image_path}")
         # 异步读取文件
         content = await image_file.read()
+        logging.info(f"[用例生成] 图片大小: {len(content)} bytes")
         with open(final_image_path, "wb") as f:
             f.write(content)
+        logging.info(f"[用例生成] 图片保存成功")
     elif reuse_image_path:
         if os.path.exists(reuse_image_path):
             final_image_path = reuse_image_path
+            logging.info(f"[用例生成] 复用已有图片: {reuse_image_path}")
+        else:
+            logging.warning(f"[用例生成] 指定的图片路径不存在: {reuse_image_path}")
 
     # --- B. 创建记录 ---
     new_record = models.TestCaseRecord(
@@ -164,22 +188,30 @@ async def generate_cases(
     db.add(new_record)
     db.commit()
     db.refresh(new_record)
+    logging.info(f"[用例生成] 创建处理记录，ID: {new_record.id}")
 
     # --- C. 执行生成 ---
     try:
+        logging.info(f"[用例生成] 开始获取模型配置...")
         # 1. 获取生成模型 (is_active_gen)
         chat_config = db.query(models.LLMConfig).filter(
             models.LLMConfig.user_id == current_user.id,
             models.LLMConfig.is_active_gen == True
         ).first()
         if not chat_config:
+            logging.error(f"[用例生成] 未找到激活的生成模型 (is_active_gen)")
             raise Exception("请先激活一个用途为'用例生成(Gen)'的模型")
+        logging.info(f"[用例生成] 使用生成模型: {chat_config.model_name} @ {chat_config.base_url}")
 
         # 2. 获取向量模型 (is_active_chat)
         embed_config = db.query(models.LLMConfig).filter(
             models.LLMConfig.user_id == current_user.id,
             models.LLMConfig.is_active_chat == True
         ).first()
+        if embed_config:
+            logging.info(f"[用例生成] 使用向量模型: {embed_config.model_name}")
+        else:
+            logging.warning(f"[用例生成] 未找到向量模型，跳过 RAG 上下文")
 
         rag_context = ""
         if embed_config:
@@ -193,36 +225,66 @@ async def generate_cases(
                 docs = rag.search(requirement, k=3)
                 rag_context = "\n\n".join(
                     [f"--- 参考规则/用例 {i + 1} ---\n{d.page_content}" for i, d in enumerate(docs)])
-                print("rag查询")
+                logging.info(f"[用例生成] RAG查询成功，获取到 {len(docs)} 条参考文档")
             except Exception as e:
-                print(f"RAG搜索失败: {e}")
+                logging.warning(f"[用例生成] RAG搜索失败: {e}，使用默认上下文")
                 rag_context = "（暂无历史参考数据）"
+        
+        # 3. 获取技能提示词（新增）
+        system_prompt = None
+        skill_name = None
+        logging.info(f"[用例生成] 技能处理开始 - skill_id: {skill_id}, 类型: {type(skill_id)}")
+        
+        if skill_id:
+            skill = db.query(models.Skill).filter(
+                models.Skill.id == skill_id,
+                models.Skill.is_active == True
+            ).first()
+            logging.info(f"[用例生成] 技能查询结果: {'找到' if skill else '未找到'}")
+            
+            if skill:
+                logging.info(f"[用例生成] 技能详情 - 名称: {skill.name}, 类型: {skill.skill_type}")
+                # 校验技能类型：如果上传了图片，文本类型的技能无效
+                if final_image_path and skill.skill_type == "text":
+                    logging.warning(f"[用例生成] 技能 '{skill.name}' 是文本类型，但用户上传了图片，使用默认提示词")
+                    system_prompt = None
+                    skill_name = None
+                else:
+                    system_prompt = skill.prompt_content
+                    skill_name = skill.name
+                    logging.info(f"[用例生成] 成功应用技能提示词，长度: {len(system_prompt)} 字符")
+            else:
+                logging.warning(f"[用例生成] 技能ID {skill_id} 不存在或未启用，使用默认提示词")
+        
+        logging.info(f"[用例生成] 最终 system_prompt 状态: {'已设置' if system_prompt else 'None (使用默认)'}")
+        logging.info(f"[用例生成] 技能处理结束")
+        
         user_content = []
         messages = None
         if final_image_path:
-            print(1111)
-            # 3. 构造 System Prompt
-            system_prompt = """
-                            你是一个资深的UI/UX测试专家。你需要根据用户的【图片】设计一条测试用例。
-                              !!! 核心要求 (CRITICAL INSTRUCTION) !!!
-                              1. **严格遵守参考风格**：输出格式必须严格模仿下方的风格（包括字段排版、分割线风格、JSON 键值结构）
-                                  参考风格：
-                              ——————————————————————————————————————————
-                                     <                      发票详情
-                                     未申请图标                              未申请
-                                     应收金额                                ￥210
-                                     不可开票金额                             ￥10
-                                     可开票金额                              ￥200
-                                     交易类型                                 消费
-                                     时间                     2025-01-01 10:00:00
-                                     交易流水号
-                                     发票状态                            未申请发票
-                                     开具状态                              未开发票
-                              ———————————————————————————————————————————
-                              2. **视觉还原**：多行文本或特殊符号来模拟 UI 布局，请照做，尽量还原视觉
-                              3. **详细度**：不要只写“显示正确”，要写出具体的字段值。
-                              请输出纯 JSON 格式的列表，列表项包含：module, title, precondition, steps (数组), expected, priority (P0/P1/P2)。
-                              """
+            # 如果没有使用技能，使用默认图片提示词
+            if system_prompt is None:
+                system_prompt = """
+                                你是一个资深的UI/UX测试专家。你需要根据用户的【图片】设计一条测试用例。
+                                  !!! 核心要求 (CRITICAL INSTRUCTION) !!!
+                                  1. **严格遵守参考风格**：输出格式必须严格模仿下方的风格（包括字段排版、分割线风格、JSON 键值结构）
+                                      参考风格：
+                                  ——————————————————————————————————————————
+                                         <                      发票详情
+                                         未申请图标                              未申请
+                                         应收金额                                ￥210
+                                         不可开票金额                             ￥10
+                                         可开票金额                              ￥200
+                                         交易类型                                 消费
+                                         时间                     2025-01-01 10:00:00
+                                         交易流水号
+                                         发票状态                            未申请发票
+                                         开具状态                              未开发票
+                                  ———————————————————————————————————————————
+                                  2. **视觉还原**：多行文本或特殊符号来模拟 UI 布局，请照做，尽量还原视觉
+                                  3. **详细度**：不要只写"显示正确"，要写出具体的字段值。
+                                  请输出纯 JSON 格式的列表，列表项包含：module, title, precondition, steps (数组), expected, priority (P0/P1/P2)。
+                                  """
             messages = [{"role": "system", "content": system_prompt}]
 
             prompt_text = f"""
@@ -248,10 +310,10 @@ async def generate_cases(
 
             messages.append({"role": "user", "content": user_content})
         else:
-            print(222)
-            # 3. 构造 System Prompt
-            system_prompt = """
-                            
+            # 如果没有使用技能，使用默认文本提示词
+            if system_prompt is None:
+                system_prompt = """
+                                
 ## Role: 高级测试工程师
 ### Profile
 - language: 中文
@@ -332,22 +394,30 @@ async def generate_cases(
         base_url = chat_config.base_url.rstrip("/")
         if not base_url.endswith("/v1"):
             base_url += "/v1"
+        logging.info(f"[用例生成] LLM API 地址: {base_url}")
 
         client = AsyncOpenAI(
             api_key=chat_config.api_key or "ollama",  # Ollama 无需真实API Key，填任意值
             base_url=base_url,
             timeout=600.0  # 新增：全局超时
         )
+        logging.info(f"[用例生成] 准备调用 LLM，模型: {chat_config.model_name}")
 
         # 关键修改：使用 await 异步调用，防止阻塞
-        response = await client.chat.completions.create(
-            model=chat_config.model_name,
-            messages=messages,
-            temperature=0.2,
-            max_tokens=8192,
-            timeout=600,
-            extra_body={"enable_thinking": False, "verbose": False},
-        )
+        try:
+            response = await client.chat.completions.create(
+                model=chat_config.model_name,
+                messages=messages,
+                temperature=0.2,
+                max_tokens=8192,
+                timeout=600,
+                extra_body={"enable_thinking": False, "verbose": False},
+            )
+            logging.info(f"[用例生成] LLM 调用成功，响应长度: {len(response.choices[0].message.content)}")
+        except Exception as e:
+            logging.error(f"[用例生成] LLM 调用失败: {e}", exc_info=True)
+            raise
+        
         res_content = response.choices[0].message.content
 
         # 使用qwen3.5-27b的处理 lmstudio部署
@@ -370,17 +440,22 @@ async def generate_cases(
         else:
             # 如果没有代码块标记，尝试直接解析整个内容
             json_str = clean_content
-        print("这是返回结果")
-        print(json_str)
+        
+        logging.info(f"[用例生成] LLM 返回结果长度: {len(json_str)} 字符")
+        logging.debug(f"[用例生成] LLM 返回结果预览: {json_str}")
+        
         new_record.result_json = json.loads(json_str)
         new_record.status = "success"
+        logging.info(f"[用例生成] 用例生成成功，记录ID: {new_record.id}, 用例数量: {len(new_record.result_json)}")
 
     except Exception as e:
-        logging.error(f"生成失败: {e}")
+        logging.error(f"[用例生成] 用例生成失败: {e}", exc_info=True)
         new_record.status = "failed"
         new_record.error_msg = str(e)
+        logging.error(f"[用例生成] 更新记录状态为 failed，错误信息: {str(e)}")
     finally:
         db.commit()
+        logging.info(f"[用例生成] ========== 用例生成任务结束 ==========")
 
     return {"status": "success", "record_id": new_record.id}
 
@@ -479,9 +554,13 @@ async def reprocess_knowledge(
         db: Session = Depends(get_db),
         current_user: models.User = Depends(get_current_user)
 ):
+    logging.info(f"[知识库重新处理] 用户 {current_user.username} 请求重新处理文档 ID: {doc_id}")
+    
     doc = db.query(models.KnowledgeDocument).filter(models.KnowledgeDocument.id == doc_id).first()
     if not doc:
+        logging.error(f"[知识库重新处理] 文档 ID {doc_id} 不存在")
         raise HTTPException(status_code=404, detail="文件不存在")
+    logging.info(f"[知识库重新处理] 找到文档: {doc.filename}, 当前状态: {doc.status}")
 
     llm_config = db.query(models.LLMConfig).filter(
         models.LLMConfig.user_id == current_user.id,
@@ -489,7 +568,9 @@ async def reprocess_knowledge(
     ).first()
 
     if not llm_config:
+        logging.error(f"[知识库重新处理] 用户 {current_user.username} 未配置激活的 Embedding 模型")
         raise HTTPException(status_code=400, detail="请先激活'文本(Chat)'模型用于向量化")
+    logging.info(f"[知识库重新处理] 使用模型: {llm_config.model_name}")
 
     llm_config_dict = {
         "api_key": llm_config.api_key,
@@ -497,12 +578,15 @@ async def reprocess_knowledge(
         "model_name": llm_config.model_name or "nomic-embed-text",
         "model_family": getattr(llm_config, 'model_family', '')
     }
+    logging.info(f"[知识库重新处理] 配置 LLM 参数完成")
 
     doc.status = "pending"
     doc.error_msg = None
     db.commit()
+    logging.info(f"[知识库重新处理] 文档状态已更新为 pending")
 
     process_knowledge_file.delay(doc.id, llm_config_dict)
+    logging.info(f"[知识库重新处理] 后台任务已提交，文档ID: {doc.id}")
 
     return {"status": "success", "msg": "已提交重新解析任务"}
 
@@ -513,13 +597,16 @@ def delete_knowledge(
         db: Session = Depends(get_db),
         current_user: models.User = Depends(get_current_user)
 ):
+    logging.info(f"[知识库删除] ========== 开始删除文档 ID: {doc_id} ==========")
+    logging.info(f"[知识库删除] 用户: {current_user.username}")
+    
     # 1. 查找文件记录
     doc = db.query(models.KnowledgeDocument).filter(models.KnowledgeDocument.id == doc_id).first()
     if not doc:
+        logging.error(f"[知识库删除] 文档 ID {doc_id} 不存在")
         raise HTTPException(status_code=404, detail="文件不存在")
 
-    print(f"------------ [DEBUG START] 删除流程 ID={doc_id} ------------")
-    print(f"1. 准备删除文件: {doc.filename}")
+    logging.info(f"[知识库删除] 找到文档: {doc.filename}, 文件路径: {doc.file_path}")
 
     # 2. 查找是否配置了 Embedding 模型
     llm_config = db.query(models.LLMConfig).filter(
@@ -528,9 +615,9 @@ def delete_knowledge(
     ).first()
 
     if llm_config:
-        print(f"2. ✅ 发现已激活的 Embedding 模型: {llm_config.model_name}")
+        logging.info(f"[知识库删除] 发现已激活的 Embedding 模型: {llm_config.model_name}")
         try:
-            print("3. 正在初始化 RagService...")
+            logging.info(f"[知识库删除] 正在初始化 RagService...")
             rag = RagService(
                 api_key=llm_config.api_key,
                 base_url=llm_config.base_url,
@@ -538,32 +625,30 @@ def delete_knowledge(
             )
 
             path_str = str(doc.file_path)
-            print(f"4. 🚀 调用 rag.delete_doc_by_source, 路径: {path_str}")
+            logging.info(f"[知识库删除] 调用 rag.delete_doc_by_source, 路径: {path_str}")
 
             rag.delete_doc_by_source(path_str)
-            print("5. RagService 调用结束")
+            logging.info(f"[知识库删除] 向量数据库删除成功")
 
         except Exception as e:
-            print(f"❌ [API Error] 向量删除步骤抛出异常: {e}")
-            import traceback
-            traceback.print_exc()
+            logging.error(f"[知识库删除] 向量删除步骤失败: {e}", exc_info=True)
     else:
-        print("⚠️ [跳过] 未找到激活的 'is_active_chat' 模型，跳过向量删除步骤！")
+        logging.warning(f"[知识库删除] 未找到激活的 Embedding 模型，跳过向量删除步骤")
 
     # 3. 物理文件删除
     if doc.file_path and os.path.exists(doc.file_path):
         try:
             os.remove(doc.file_path)
-            print(f"6. ✅ 物理文件已删除: {doc.file_path}")
+            logging.info(f"[知识库删除] 物理文件已删除: {doc.file_path}")
         except Exception as e:
-            print(f"❌ 物理文件删除失败: {e}")
+            logging.error(f"[知识库删除] 物理文件删除失败: {e}", exc_info=True)
     else:
-        print(f"6. ⚠️ 物理文件不存在，无需删除: {doc.file_path}")
+        logging.warning(f"[知识库删除] 物理文件不存在，无需删除: {doc.file_path}")
 
     # 4. 数据库记录删除
     db.delete(doc)
     db.commit()
-    print(f"7. 数据库记录已清除")
-    print(f"------------ [DEBUG END] ------------")
+    logging.info(f"[知识库删除] 数据库记录已清除")
+    logging.info(f"[知识库删除] ========== 删除流程结束 ==========")
 
     return {"status": "success", "msg": "删除成功"}

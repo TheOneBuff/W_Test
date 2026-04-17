@@ -257,3 +257,34 @@ class NotificationTestRequest(BaseModel):
 class NotificationTestResponse(BaseModel):
     success: bool
     message: str
+
+
+class SkillCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    prompt_content: str
+    skill_type: str = "general"
+    is_active: bool = True
+
+
+class SkillUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    prompt_content: Optional[str] = None
+    skill_type: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class SkillOut(BaseModel):
+    id: int
+    name: str
+    description: Optional[str] = None
+    prompt_content: str
+    skill_type: str
+    is_active: bool
+    created_by: Optional[int] = None
+    create_time: datetime
+    update_time: datetime
+
+    class Config:
+        from_attributes = True
