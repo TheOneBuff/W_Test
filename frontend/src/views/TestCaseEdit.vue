@@ -26,6 +26,13 @@
               <el-input v-model="form.name" placeholder="例如：GitHub Search" size="large" />
             </el-form-item>
 
+            <el-form-item label="用例类型">
+              <el-radio-group v-model="form.case_type" class="w-100 case-type-radio">
+                <el-radio-button label="web">WEB 自动化</el-radio-button>
+                <el-radio-button label="pc">PC 桌面自动化</el-radio-button>
+              </el-radio-group>
+            </el-form-item>
+
             <el-form-item label="所属项目">
               <el-select v-model="form.project_id" placeholder="选择项目" clearable class="w-100">
                 <el-option v-for="p in projectList" :key="p.id" :label="p.name" :value="p.id" />
@@ -190,7 +197,7 @@ const envList = ref<any[]>([])
 
 const form = reactive({
   name: '', description: '', project_id: null as number | null,
-  script_type: 'typescript', script_content: ''
+  script_type: 'typescript', script_content: '', case_type: 'web'
 })
 
 const debugDrawerVisible = ref(false)
@@ -435,6 +442,8 @@ const openReport = () => window.open(router.resolve(`/report-view/${debugReportI
 .mt-4 { margin-top: 16px; }
 .type-radio :deep(.el-radio-button__inner) { width: 100%; padding: 8px 0; }
 .type-radio :deep(.el-radio-button) { flex: 1; display: flex; }
+.case-type-radio :deep(.el-radio-button__inner) { padding: 8px 0; }
+.case-type-radio :deep(.el-radio-button) { flex: 1; display: flex; }
 .tips-wrapper { margin-top: 12px; }
 .action-footer { margin-top: 30px; }
 

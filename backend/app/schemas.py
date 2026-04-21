@@ -291,3 +291,42 @@ class SkillOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class ExecutorRegister(BaseModel):
+    name: str
+    uuid: str
+    executor_type: str = "pc"
+    version: Optional[str] = None
+    ip_address: Optional[str] = None
+    os_version: Optional[str] = None
+    hostname: Optional[str] = None
+    capabilities: Optional[dict] = None
+
+
+class ExecutorCreate(ExecutorRegister):
+    pass
+
+
+class ExecutorUpdate(BaseModel):
+    name: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class ExecutorOut(BaseModel):
+    id: int
+    uuid: str
+    name: str
+    executor_type: str
+    version: Optional[str] = None
+    ip_address: Optional[str] = None
+    os_version: Optional[str] = None
+    hostname: Optional[str] = None
+    status: str
+    last_heartbeat: Optional[datetime] = None
+    capabilities: Optional[dict] = None
+    is_active: bool
+    create_time: datetime
+
+    class Config:
+        from_attributes = True

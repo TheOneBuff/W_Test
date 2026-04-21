@@ -339,3 +339,30 @@ class NotificationConfig(Base):
 
     created_at = Column(DateTime, default=datetime.now())
     updated_at = Column(DateTime, default=datetime.now(), onupdate=datetime.now())
+
+
+EXECUTOR_OFFLINE_TIMEOUT = 60
+
+
+class Executor(Base):
+    __tablename__ = "pc_executors"
+
+    id = Column(Integer, primary_key=True, index=True)
+    uuid = Column(String(100), unique=True, nullable=False, index=True)
+    name = Column(String(100), nullable=False)
+    executor_type = Column(String(20), default="pc")
+    version = Column(String(50), nullable=True)
+
+    ip_address = Column(String(50), nullable=True)
+    os_version = Column(String(100), nullable=True)
+    hostname = Column(String(100), nullable=True)
+    capabilities = Column(JSON, nullable=True)
+
+    status = Column(String(20), default="offline")
+    last_heartbeat = Column(DateTime, nullable=True)
+
+    owner_id = Column(Integer, index=True, nullable=True)
+    is_active = Column(Boolean, default=True)
+
+    create_time = Column(DateTime, default=datetime.now)
+    update_time = Column(DateTime, default=datetime.now, onupdate=datetime.now)

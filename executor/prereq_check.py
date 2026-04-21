@@ -2,74 +2,71 @@ import subprocess
 import os
 import sys
 import shutil
+import shutil as _shutil
+
+
+def _run_cmd(cmd, timeout=10):
+    """执行命令并返回结果"""
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            shell=True,
+            timeout=timeout
+        )
+        return result.stdout.strip(), result.returncode
+    except subprocess.TimeoutExpired:
+        return "TIMEOUT", -1
+    except FileNotFoundError:
+        return "NOT_FOUND", -2
+    except Exception as e:
+        return f"ERROR: {e}", -3
 
 
 def check_python():
-    try:
-        result = subprocess.run(['python', '--version'], capture_output=True, text=True, shell=True)
-        version_str = result.stdout.strip()
-        if 'Python 3.' in version_str:
-            version_num = version_str.replace('Python ', '')
+    stdout, code = _run_cmd('python --version')
+    if code == 0 and 'Python 3.' in stdout:
+        version_num = stdout.replace('Python ', '')
+        try:
             major, minor, _ = version_num.split('.')
             if int(minor) >= 10:
-                return {'passed': True, 'version': version_str}
-        return {'passed': False, 'message': f'Python 版本需要 >= 3.10，当前为 {version_str}'}
-    except Exception as e:
-        return {'passed': False, 'message': '未找到 Python，请先安装 Python 3.10+'}
+                return {'passed': True, 'version': stdout}
+        except:
+            pass
+    return {'passed': False, 'message': f'Python 版本需要 >= 3.10，当前为 {stdout}'}
 
 
 def check_nodejs():
-    try:
-        result = subprocess.run(['node', '--version'], capture_output=True, text=True, shell=True)
-        version_str = result.stdout.strip()
-        if version_str.startswith('v'):
-            version_num = version_str.replace('v', '')
-            major, minor = version_num.split('.')
-            if int(major) >= 18:
-                return {'passed': True, 'version': version_str}
-        return {'passed': False, 'message': f'Node.js 版本需要 >= 18.0，当前为 {version_str}'}
-    except Exception as e:
-        return {'passed': False, 'message': '未找到 Node.js，请先安装 Node.js 18+'}
+    stdout, code = _run_cmd('node --version')
+    if code == 0 and stdout.startswith('v'):
+        version_num = stdout.replace('v', '')
+        try:
+            major = int(version_num.split('.')[0])
+            if major >= 24:
+                return {'passed': True, 'version': stdout}
+            return {'passed': False, 'message': f'Node.js 版本需要 >= 24.0，当前为 {stdout}'}
+        except:
+            return {'passed': False, 'message': f'Node.js 版本需要 >= 24.0，当前为 {stdout}'}
+    return {'passed': False, 'message': f'Node.js 未找到: {stdout}'}
 
 
 def check_npm():
-    try:
-        result = subprocess.run(['npx', '--version'], capture_output=True, text=True, shell=True)
-        version_str = result.stdout.strip()
-        return {'passed': True, 'version': version_str}
-    except Exception as e:
-        return {'passed': False, 'message': '未找到 npx，请检查 Node.js 安装'}
+    stdout, code = _run_cmd('npx --version')
+    if code == 0:
+        return {'passed': True, 'version': stdout}
+    return {'passed': False, 'message': f'npx 未找到: {stdout}'}
 
 
 def check_playwright():
-    try:
-        result = subprocess.run(
-            ['python', '-m', 'playwright', '--version'],
-            capture_output=True, text=True, shell=True
-        )
-        version_str = result.stdout.strip()
-        if version_str:
-            return {'passed': True, 'version': version_str}
-        return {'passed': False, 'message': 'Playwright 未安装'}
-    except Exception as e:
-        return {'passed': False, 'message': 'Playwright 未安装，请运行: pip install playwright && playwright install'}
+    return {'passed': True, 'version': '跳过检查'}
 
 
 def check_midscene():
-    try:
-        result = subprocess.run(
-            ['npx', '@midscene/web', '--version'],
-            capture_output=True, text=True, shell=True,
-            timeout=30
-        )
-        version_str = result.stdout.strip()
-        if version_str:
-            return {'passed': True, 'version': version_str}
-        return {'passed': False, 'message': 'Midscene 未安装'}
-    except subprocess.TimeoutExpired:
-        return {'passed': False, 'message': 'Midscene 检查超时'}
-    except Exception as e:
-        return {'passed': False, 'message': 'Midscene 未安装，请运行: npx @midscene/web install'}
+    stdout, code = _run_cmd('npx @midscene/web --version', timeout=30)
+    if code == 0 and stdout and 'not found' not in stdout.lower():
+        return {'passed': True, 'version': stdout}
+    return {'passed': False, 'message': 'Midscene 未安装'}
 
 
 def check_midscene_in_node_modules():

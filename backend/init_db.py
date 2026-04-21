@@ -73,6 +73,8 @@ def init():
                             component="NotificationManage"))
                 db.add(Menu(title="技能管理", path="/skills", icon="Grid", sort=7, parent_id=m_system.id,
                             component="SkillManage"))
+                db.add(Menu(title="执行器管理", path="/executors", icon="Cpu", sort=8, parent_id=m_system.id,
+                            component="ExecutorManage"))
 
             db.commit()
             print("Menus initialized successfully.")

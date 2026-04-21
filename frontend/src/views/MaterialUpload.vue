@@ -1,7 +1,13 @@
 <template>
   <div class="page-container">
     <div class="toolbar-card">
-      <div class="title">素材管理</div>
+      <div class="title">{{ currentCategory === 'pc' ? 'PC素材管理' : 'Web素材管理' }}</div>
+      <div class="category-tabs">
+        <el-radio-group v-model="currentCategory" @change="handleCategoryChange" size="small">
+          <el-radio-button label="web">Web素材</el-radio-button>
+          <el-radio-button label="pc">PC素材</el-radio-button>
+        </el-radio-group>
+      </div>
     </div>
 
     <el-card shadow="never" class="upload-card">
@@ -97,17 +103,17 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, computed } from 'vue'
-import { useRoute } from 'vue-router'
+import { ref, reactive, onMounted } from 'vue'
 import axios from '@/utils/request'
 import { ElMessage } from 'element-plus'
 import { Upload } from '@element-plus/icons-vue'
 
-const route = useRoute()
+const currentCategory = ref('web')
 
-const currentCategory = computed(() => {
-  return (route.meta.category as string) || 'web'
-})
+const handleCategoryChange = (val: string) => {
+  currentCategory.value = val
+  fetchMaterials()
+}
 
 const form = reactive({
   name: '',
@@ -251,6 +257,11 @@ onMounted(async () => {
   font-size: 16px;
   font-weight: 600;
   color: #1f2937;
+}
+
+.category-tabs {
+  display: flex;
+  gap: 8px;
 }
 
 .upload-card,

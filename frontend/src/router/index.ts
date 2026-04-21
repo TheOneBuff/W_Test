@@ -121,6 +121,13 @@ const router = createRouter({
           name: 'MaterialUpload',
           component: () => import('../views/MaterialUpload.vue'),
           meta: { title: '素材管理' }
+        },
+        // --- 执行器管理 ---
+        {
+          path: 'executors',
+          name: 'ExecutorManage',
+          component: () => import('../views/ExecutorManage.vue'),
+          meta: { title: '执行器管理' }
         }
       ]
     },

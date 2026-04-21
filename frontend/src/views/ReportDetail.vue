@@ -74,6 +74,41 @@
         </div>
       </div>
     </div>
+
+    <el-dialog v-model="executorVisible" title="选择执行器" width="500px" align-center>
+      <div class="executor-selector">
+        <el-empty v-if="pcExecutors.length === 0 && !executorLoading" description="暂无可用的执行器" />
+        <div v-else v-loading="executorLoading">
+          <el-select
+            v-model="selectedExecutorId"
+            placeholder="请选择执行器"
+            style="width: 100%"
+            clearable
+          >
+            <el-option
+              v-for="ex in pcExecutors"
+              :key="ex.id"
+              :label="`${ex.name} (${ex.ip_address || '无IP'})`"
+              :value="ex.id"
+            >
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-weight: 500;">{{ ex.name }}</span>
+                <span style="color: #9ca3af; font-size: 12px;">{{ ex.ip_address || '无IP' }}</span>
+                <el-tag size="small" :type="ex.status === 'online' ? 'success' : 'info'">
+                  {{ ex.status === 'online' ? '在线' : ex.status }}
+                </el-tag>
+              </div>
+            </el-option>
+          </el-select>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="executorVisible = false">取消</el-button>
+        <el-button type="primary" @click="confirmExecutorRun" :disabled="!selectedExecutorId">
+          确认下发
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -81,7 +116,7 @@
 import { ref, onMounted, computed, onUnmounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import request from '@/utils/request'
-import { dispatchTask } from '@/api/android' // 复用之前定义的 API
+import { dispatchTask, getExecutorList } from '@/api/pc'
 import { Loading, RefreshRight, ArrowLeft } from '@element-plus/icons-vue'
 import dayjs from 'dayjs'
 import { ElMessage } from 'element-plus'
@@ -89,6 +124,11 @@ import { ElMessage } from 'element-plus'
 const route = useRoute()
 const router = useRouter()
 const retrying = ref(false)
+
+const executorVisible = ref(false)
+const pcExecutors = ref<any[]>([])
+const selectedExecutorId = ref<number | null>(null)
+const executorLoading = ref(false)
 
 // 报告数据模型
 const report = ref<any>({
@@ -164,28 +204,55 @@ const handleRetry = async () => {
 
   retrying.value = true
   try {
-    // 调用 Android 分发接口
-    const res = await dispatchTask(report.value.test_case_id)
+    const caseRes = await request.get(`/testcases/${report.value.test_case_id}`)
+    const caseInfo = caseRes.data
 
-    // [修复] res 是 AxiosResponse 对象，实际数据在 res.data 中
-    const newReport = res.data
-
-    ElMessage.success(`重跑任务已创建 (ID: ${newReport.id})`)
-
-    // 跳转到新报告页面
-    router.push(`/report-view/${newReport.id}`)
-
-    // 更新当前页面数据模型
-    report.value = newReport
-
-    // 立即刷新状态
-    fetchStatus()
-
+    if (caseInfo.case_type === 'pc') {
+      executorVisible.value = true
+      selectedExecutorId.value = null
+      executorLoading.value = true
+      try {
+        const exRes = await getExecutorList({ status: 'online', limit: 50 })
+        pcExecutors.value = (exRes.data || []).filter((e: any) => e.is_active)
+      } catch (e) {
+        console.error(e)
+        pcExecutors.value = []
+      } finally {
+        executorLoading.value = false
+      }
+    } else {
+      const res = await request.post(`/testcases/${report.value.test_case_id}/run`)
+      const newReport = res.data
+      ElMessage.success(`重跑任务已创建 (ID: ${newReport.id})`)
+      router.push(`/report-view/${newReport.id}`)
+      report.value = newReport
+      fetchStatus()
+    }
   } catch (e) {
     console.error(e)
     ElMessage.error('重跑请求失败')
   } finally {
     retrying.value = false
+  }
+}
+
+const confirmExecutorRun = async () => {
+  if (!selectedExecutorId.value) {
+    ElMessage.warning('请选择执行器')
+    return
+  }
+
+  executorVisible.value = false
+  try {
+    const res = await dispatchTask(report.value.test_case_id, selectedExecutorId.value)
+    const newReport = res.data
+    ElMessage.success(`重跑任务已创建 (ID: ${newReport.id})`)
+    router.push(`/report-view/${newReport.id}`)
+    report.value = newReport
+    fetchStatus()
+  } catch (e) {
+    console.error(e)
+    ElMessage.error('重跑请求失败')
   }
 }
 

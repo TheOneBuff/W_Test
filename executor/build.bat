@@ -47,7 +47,7 @@ if errorlevel 1 (
 echo.
 
 echo Starting build...
-python -m PyInstaller main.py --onefile --console --name PCExecutor --clean
+python -m PyInstaller PCExecutor.spec --clean
 if errorlevel 1 (
     echo [ERROR] Build failed
     pause

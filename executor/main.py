@@ -81,20 +81,30 @@ class PCExecutor:
         data = {
             'name': self.executor_name,
             'uuid': self.uuid,
+            'executor_type': self.executor_type,
             'capabilities': {'script_types': system_info['script_types']},
             'os_version': system_info['os_version'],
             'hostname': system_info['hostname'],
             'ip_address': system_info['ip_address'],
-            'executor_version': system_info['executor_version']
+            'version': system_info['executor_version']
         }
         
+        self.log(f"[注册] 目标服务器: {self.platform_url}", "info")
+        self.log(f"[注册] 发送数据: {json.dumps(data, ensure_ascii=False)}", "info")
+        
         try:
-            resp = requests.post(f"{self.platform_url}/api/pc/executors/register", json=data, timeout=10)
+            url = f"{self.platform_url}/api/pc/executors/register"
+            self.log(f"[注册] 请求URL: {url}", "info")
+            
+            resp = requests.post(url, json=data, timeout=10)
+            self.log(f"[注册] 响应状态码: {resp.status_code}", "info")
+            self.log(f"[注册] 响应内容: {resp.text}", "info")
+            
             if resp.status_code == 200:
                 return True
             return False
         except Exception as e:
-            self.log(f"连接服务器失败: {e}", "error")
+            self.log(f"[注册] 连接服务器失败: {type(e).__name__}: {e}", "error")
             return False
             
     def on_task_received(self, task: dict):
@@ -166,7 +176,13 @@ class PCExecutor:
     def start(self):
         self.running = True
         
+        self.log("[启动] 开始启动执行器...", "info")
+        self.log(f"[启动] 服务器地址: {self.platform_url}", "info")
+        
+        self.log("[启动] 开始检查环境...", "info")
         prereq_result = self.run_prereq_checks()
+        self.log(f"[启动] 环境检查完成，结果: {prereq_result}", "info")
+        
         self.log("=" * 50, "info")
         self.log("PC 桌面自动化执行器 v" + VERSION, "info")
         self.log("=" * 50, "info")
@@ -174,12 +190,16 @@ class PCExecutor:
         for name, check in prereq_result['checks'].items():
             status = '✅' if check['passed'] else '❌'
             self.log(f"  {status} {name}: {check.get('version', check.get('message', ''))}", "info")
-            
+        
+        self.log("[启动] 开始注册到服务器...", "info")
         if not self.register_to_server():
             self.log("[错误] 无法连接到服务器", "error")
+            self.running = False
             return False
             
         self.log("✅ 注册成功! UUID: " + self.uuid, "success")
+        self.connected = True
+        self.on_connect()
         
         self.ws_client = WSClient(
             server_url=self.ws_url,
@@ -188,20 +208,44 @@ class PCExecutor:
             on_disconnect=self.on_disconnect
         )
         
-        self.ws_client.start()
-        self._heartbeat_thread = start_heartbeat(self.ws_client, 30)
-        self.connected = True
-        self.on_connect()
+        threading.Thread(target=self._run_websocket, daemon=True).start()
         
         self.log("=" * 50, "info")
         return True
+    
+    def _run_websocket(self):
+        """WebSocket 连接运行在后端线程"""
+        try:
+            self._heartbeat_thread = start_heartbeat(self.ws_client, 30)
+            self.ws_client.start()
+        except Exception as e:
+            self.log(f"[WebSocket错误] {e}", "error")
+            self.running = False
+            self.on_disconnect()
         
     def stop(self):
         self.running = False
         if self.ws_client:
             self.ws_client.stop()
         self.connected = False
+        self._report_status("offline")
         self.log("[已停止] 执行器已停止", "info")
+
+    def _report_status(self, status: str):
+        """上报状态到服务器"""
+        try:
+            data = {
+                'uuid': self.uuid,
+                'status': status
+            }
+            requests.post(
+                f"{self.platform_url}/api/pc/executors/status",
+                json=data,
+                timeout=5
+            )
+            self.log(f"[状态上报] {status}", "info")
+        except Exception as e:
+            self.log(f"[状态上报失败] {e}", "error")
         
     def update_config(self, server_url=None, script_dir=None):
         if server_url:
@@ -421,9 +465,13 @@ def show_gui_manager(executor):
             nonlocal running
             if running:
                 status_label.config(text="状态: 运行中", bg='#27ae60')
+                start_btn.config(state=tk.DISABLED)
+                stop_btn.config(state=tk.NORMAL)
             else:
                 status_label.config(text="状态: 已停止", bg='#e74c3c')
-                
+                start_btn.config(state=tk.NORMAL)
+                stop_btn.config(state=tk.DISABLED)
+
         def on_start():
             nonlocal running
             if running:
@@ -436,31 +484,34 @@ def show_gui_manager(executor):
                 executor.update_config(executor.platform_url, executor.script_dir)
             else:
                 executor.update_config(executor.platform_url)
-                
+
             server_label.config(text=f"服务器: {executor.platform_url}")
-            
+
             def run():
                 nonlocal running
                 running = True
                 update_status()
-                executor.start()
-                running = False
-                update_status()
-                
+                success = executor.start()
+                if not success:
+                    running = False
+                    update_status()
+
             threading.Thread(target=run, daemon=True).start()
-            
+
         def on_stop():
             nonlocal running
+            add_log("[停止] 点击了停止按钮", "info")
             if not running:
+                add_log("[停止] 执行器未在运行", "info")
                 return
-            executor.stop()
             running = False
             update_status()
-            
-        start_btn = tk.Button(btn_frame, text="启动", command=on_start, bg='#27ae60', fg='white', 
+            executor.stop()
+
+        start_btn = tk.Button(btn_frame, text="启动", command=on_start, bg='#27ae60', fg='white',
                             font=('Arial', 10, 'bold'), width=8)
         start_btn.pack(side=tk.LEFT, padx=2)
-        
+
         stop_btn = tk.Button(btn_frame, text="停止", command=on_stop, bg='#e74c3c', fg='white',
                           font=('Arial', 10, 'bold'), width=8, state=tk.DISABLED)
         stop_btn.pack(side=tk.LEFT, padx=2)
