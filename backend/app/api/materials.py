@@ -22,6 +22,7 @@ async def upload_material(
     file: UploadFile = File(...),
     name: str = Form(...),
     project_id: Optional[int] = Form(None),
+    category: str = Form("web"),  # 素材分类: web/pc
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
@@ -29,9 +30,13 @@ async def upload_material(
     if not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="只支持图片上传")
     
-    # 生成唯一文件名
+    # 验证分类
+    if category not in ["web", "pc"]:
+        raise HTTPException(status_code=400, detail="分类只能是 web 或 pc")
+    
+    # 生成唯一文件名（包含分类前缀）
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"{timestamp}_{file.filename}"
+    filename = f"{category}_{timestamp}_{file.filename}"
     file_path = os.path.join(UPLOAD_DIR, filename)
     
     # 保存文件
@@ -48,7 +53,8 @@ async def upload_material(
         file_path=file_path,
         file_type=file.content_type,
         file_size=file_size,
-        project_id=project_id
+        project_id=project_id,
+        category=category
     )
     
     db.add(db_material)
@@ -61,6 +67,7 @@ async def upload_material(
 @router.get("/", response_model=List[schemas.MaterialOut])
 def get_materials(
     project_id: Optional[int] = None,
+    category: Optional[str] = None,  # 素材分类筛选: web/pc
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
@@ -68,6 +75,9 @@ def get_materials(
     
     if project_id:
         query = query.filter(models.Material.project_id == project_id)
+    
+    if category:
+        query = query.filter(models.Material.category == category)
     
     return query.order_by(models.Material.create_time.desc()).all()
 

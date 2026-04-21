@@ -64,6 +64,9 @@ class TestCase(Base):
 
     project_id = Column(Integer, index=True, nullable=True)
 
+    # 区分用例类型: web / pc
+    case_type = Column(String(20), default="web")
+
     # TestCase -> Project (Many-to-One)
     project = relationship(
         "Project",
@@ -84,6 +87,7 @@ class TestCase(Base):
         primaryjoin="TestCase.id == TestReport.test_case_id",
         foreign_keys="TestReport.test_case_id"
     )
+
 
 
 class TestReport(Base):
@@ -303,6 +307,7 @@ class Material(Base):
     file_type = Column(String(50), nullable=False)  # 文件类型
     file_size = Column(Integer, nullable=False)  # 文件大小（字节）
     project_id = Column(Integer, index=True, nullable=True)  # 所属项目
+    category = Column(String(20), default="web", nullable=False)  # 素材分类: web/pc
 
     create_time = Column(DateTime, default=datetime.now())
 

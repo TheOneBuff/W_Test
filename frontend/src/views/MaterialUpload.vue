@@ -98,9 +98,16 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted, computed } from 'vue'
+import { useRoute } from 'vue-router'
 import axios from '@/utils/request'
 import { ElMessage } from 'element-plus'
 import { Upload } from '@element-plus/icons-vue'
+
+const route = useRoute()
+
+const currentCategory = computed(() => {
+  return (route.meta.category as string) || 'web'
+})
 
 const form = reactive({
   name: '',
@@ -123,10 +130,15 @@ const fetchProjects = async () => {
   }
 }
 
-// 获取素材列表
+// 获取素材列表（根据当前分类筛选）
 const fetchMaterials = async () => {
   try {
-    const params = filterProjectId.value ? { project_id: filterProjectId.value } : {}
+    const params: any = {}
+    if (filterProjectId.value) {
+      params.project_id = filterProjectId.value
+    }
+    params.category = currentCategory.value
+    
     const res = await axios.get('/materials/', { params })
     materialList.value = res.data
   } catch (e) {
@@ -157,6 +169,7 @@ const handleUpload = async () => {
   if (form.project_id) {
     formData.append('project_id', form.project_id.toString())
   }
+  formData.append('category', currentCategory.value)
   
   uploading.value = true
   
@@ -196,8 +209,6 @@ const handleDelete = async (id: number) => {
 
 // 获取素材 URL
 const getMaterialUrl = (filePath: string) => {
-  // 由于上传路径是 /data/uploads，而前端访问路径可能不同
-  // 这里假设后端会提供静态文件服务，路径为 /uploads
   return filePath.replace('/data/uploads', '/uploads')
 }
 
@@ -210,11 +221,6 @@ const formatFileSize = (size: number) => {
   } else {
     return (size / (1024 * 1024)).toFixed(2) + ' MB'
   }
-}
-
-// 监听筛选条件变化
-const handleFilterChange = () => {
-  fetchMaterials()
 }
 
 onMounted(async () => {

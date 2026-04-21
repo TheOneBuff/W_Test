@@ -98,7 +98,8 @@ class TestCaseBase(BaseModel):
     project_id: Optional[int] = None
     project_name: Optional[str] = None
     script_content: str  # YAML 或 自然语言
-    script_type: str = "yaml"  # yaml / prompt
+    script_type: str = "yaml"  # yaml / prompt / typescript
+    case_type: str = "web"  # web / pc
 
 
 class TestCaseCreate(TestCaseBase):
@@ -182,6 +183,7 @@ class TaskLogOut(BaseModel):
 class MaterialBase(BaseModel):
     name: str
     project_id: Optional[int] = None
+    category: str = "web"  # 素材分类: web/pc
 
 
 class MaterialCreate(MaterialBase):
@@ -193,6 +195,7 @@ class MaterialOut(MaterialBase):
     file_path: str
     file_type: str
     file_size: int
+    category: str
     create_time: datetime
 
     class Config:

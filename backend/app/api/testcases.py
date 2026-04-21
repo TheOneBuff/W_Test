@@ -43,6 +43,7 @@ def report_to_schema(report_obj: models.TestReport) -> schemas.TestReportOut:
 @router.get("/", response_model=List[schemas.TestCaseOut])
 def get_test_cases(
         project_id: Optional[int] = None,  # 支持按项目筛选
+        case_type: Optional[str] = None,  # 支持按类型筛选: web / pc
         db: Session = Depends(get_db),
         current_user: models.User = Depends(get_current_user)
 ):
@@ -58,6 +59,10 @@ def get_test_cases(
     # 前端筛选参数
     if project_id:
         query = query.filter(models.TestCase.project_id == project_id)
+
+    # 类型筛选
+    if case_type:
+        query = query.filter(models.TestCase.case_type == case_type)
 
     items = query.all()
 

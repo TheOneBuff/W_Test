@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from .database import engine, Base
-from .api import auth, user, llm, menus, testcases, projects, environments, periodic, dashboard,knowledge,vision_llm, materials, notification, skills
+from .api import auth, user, llm, menus, testcases, projects, environments, periodic, dashboard,knowledge,vision_llm, materials, notification, skills, pc_executors, pc_websocket
 from .tasks import run_midscene_task # 确保 task 被注册
 from .core.scheduler import start_scheduler
 from .core.logging import app_logger
