@@ -73,11 +73,11 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="最后心跳" width="160">
+        <el-table-column label="最后心跳" width="170">
           <template #default="{ row }">
             <div class="heartbeat-info" v-if="row.last_heartbeat">
               <el-icon><Clock /></el-icon>
-              {{ formatRelativeTime(row.last_heartbeat) }}
+              {{ formatDate(row.last_heartbeat) }}
             </div>
             <div class="heartbeat-info" v-else>
               <span class="no-heartbeat">无记录</span>

@@ -111,6 +111,11 @@ def list_executors(
         
         result = []
         for ex in executors:
+            is_offline = ex.last_heartbeat and ex.last_heartbeat < timeout
+            calculated_status = "offline" if is_offline else ex.status
+            if is_offline:
+                logger.info(f"[列表] 执行器 {ex.name} 显示离线: last_heartbeat={ex.last_heartbeat}, timeout={timeout}")
+            
             ex_dict = {
                 "id": ex.id,
                 "uuid": ex.uuid,
@@ -120,7 +125,7 @@ def list_executors(
                 "ip_address": ex.ip_address,
                 "os_version": ex.os_version,
                 "hostname": ex.hostname,
-                "status": "offline" if ex.last_heartbeat and ex.last_heartbeat < timeout else ex.status,
+                "status": calculated_status,
                 "last_heartbeat": ex.last_heartbeat,
                 "capabilities": ex.capabilities,
                 "is_active": ex.is_active,
@@ -251,13 +256,16 @@ async def executor_websocket(websocket: WebSocket, db: Session = Depends(get_db)
         
         while True:
             data = await websocket.receive_text()
+            logger.info(f"[WebSocket] 收到原始数据: {data}")
             try:
                 msg = json.loads(data)
                 msg_type = msg.get("type")
-                
+                logger.info(f"[WebSocket] 收到消息: {msg_type}, data={msg}")
                 if msg_type == "register":
                     uuid = msg.get("uuid")
+                    logger.info(f"[WebSocket] 收到注册消息: uuid={uuid}")
                     await manager.connect(websocket, uuid)
+                    logger.info(f"[WebSocket] 连接已建立: uuid={uuid}")
                     
                     update_executor_heartbeat(db, uuid)
                     
@@ -269,7 +277,9 @@ async def executor_websocket(websocket: WebSocket, db: Session = Depends(get_db)
                     
                 elif msg_type == "heartbeat":
                     uuid = msg.get("uuid")
+                    logger.info(f"[WebSocket] 收到心跳: uuid={uuid}, data={msg}")
                     update_executor_heartbeat(db, uuid)
+                    logger.info(f"[WebSocket] heartbeat_ack 已发送")
                     await websocket.send_text(json.dumps({
                         "type": "heartbeat_ack",
                         "timestamp": datetime.now().isoformat()
@@ -303,6 +313,54 @@ async def executor_websocket(websocket: WebSocket, db: Session = Depends(get_db)
     except Exception as e:
         if uuid:
             manager.disconnect(uuid)
+
+@router.post("/executors/heartbeat")
+def executor_heartbeat(uuid: str, db: Session = Depends(get_db)):
+    logger.info(f"[HTTP] 收到心跳: uuid={uuid}")
+    executor = update_executor_heartbeat(db, uuid)
+    if executor:
+        return {"status": "ok", "uuid": uuid}
+    return {"status": "error", "message": "executor not found"}
+
+
+@router.post("/executors/report")
+def executor_report(data: dict, db: Session = Depends(get_db)):
+    report_id = data.get('report_id')
+    status = data.get('status')
+    logs = data.get('logs', '')
+    report_html = data.get('report_html', '')
+    error_info = data.get('error_info', '')
+    logger.info(f"[HTTP] 收到报告: report_id={report_id}, status={status}")
+    return {"status": "ok", "report_id": report_id}
+
+
+@router.get("/executors/{uuid}/tasks/pending")
+def get_pending_tasks(uuid: str, db: Session = Depends(get_db)):
+    executor = db.query(models.Executor).filter(models.Executor.uuid == uuid).first()
+    if not executor:
+        return []
+    tasks = db.query(models.TestReport).filter(
+        models.TestReport.executor_id == executor.id,
+        models.TestReport.status == 'pending'
+    ).all()
+    return [{"id": t.id, "name": t.name} for t in tasks]
+
+
+@router.post("/executors/status")
+def executor_status(data: dict, db: Session = Depends(get_db)):
+    report_id = data.get('report_id')
+    status = data.get('status')
+    logs = data.get('logs', '')
+    logger.info(f"[HTTP] 收到状态: report_id={report_id}, status={status}")
+    return {"status": "ok"}
+
+
+@router.post("/executors/log")
+def executor_log(data: dict, db: Session = Depends(get_db)):
+    report_id = data.get('report_id')
+    content = data.get('content', '')
+    logger.info(f"[HTTP] 收到日志: report_id={report_id}")
+    return {"status": "ok"}
 
 
 class TaskDispatchRequest(BaseModel):

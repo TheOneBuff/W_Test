@@ -41,7 +41,7 @@ def init():
             # --- B. 父菜单 ---
 
             # WEB_UI (将 sort 顺延到 10，避免冲突)
-            m_web_ui = Menu(title="WEB_UI", icon="Monitor", sort=10)
+            m_web_ui = Menu(title="AI自动化", icon="Monitor", sort=10)
             db.add(m_web_ui)
 
             m_system = Menu(title="系统管理", icon="Setting", sort=99)
@@ -53,7 +53,7 @@ def init():
             if m_web_ui.id:
                 db.add(Menu(title="测试报告", path="/reports", icon="DataAnalysis", parent_id=m_web_ui.id, sort=1,
                             component="ReportList"))
-                db.add(Menu(title="WEB_UI用例管理", path="/testcases", icon="List", parent_id=m_web_ui.id, sort=2,
+                db.add(Menu(title="用例管理", path="/testcases", icon="List", parent_id=m_web_ui.id, sort=2,
                             component="TestCaseList"))
                 db.add(Menu(title="素材管理", path="/materials", icon="Picture", parent_id=m_web_ui.id, sort=3,
                             component="MaterialUpload"))

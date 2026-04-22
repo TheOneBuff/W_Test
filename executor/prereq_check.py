@@ -63,7 +63,7 @@ def check_playwright():
 
 
 def check_midscene():
-    stdout, code = _run_cmd('npx @midscene/web --version', timeout=30)
+    stdout, code = _run_cmd('npx @midscene/computer --version', timeout=30)
     if code == 0 and stdout and 'not found' not in stdout.lower():
         return {'passed': True, 'version': stdout}
     return {'passed': False, 'message': 'Midscene 未安装'}
@@ -72,7 +72,7 @@ def check_midscene():
 def check_midscene_in_node_modules():
     node_modules_path = get_node_modules_path()
     if node_modules_path and os.path.exists(node_modules_path):
-        midscene_path = os.path.join(node_modules_path, '@midscene', 'web')
+        midscene_path = os.path.join(node_modules_path, '@midscene', 'computer')
         if os.path.exists(midscene_path):
             return {'passed': True, 'path': midscene_path}
     return {'passed': False, 'message': 'Midscene 不在全局 node_modules 中'}

@@ -96,7 +96,8 @@ class TestReport(Base):
     id = Column(Integer, primary_key=True, index=True)
 
     test_case_id = Column(Integer, index=True)
-    batch_id = Column(String(50), index=True, nullable=True)  # 批量运行批次ID
+    executor_id = Column(Integer, index=True, nullable=True)
+    batch_id = Column(String(50), index=True, nullable=True)
 
     status = Column(SqEnum(TaskStatus), default=TaskStatus.PENDING)
     start_time = Column(DateTime, default=datetime.now())

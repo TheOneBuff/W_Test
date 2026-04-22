@@ -10,7 +10,7 @@ import requests
 from datetime import datetime
 
 from prereq_check import check_prerequisites_for_pc, check_prerequisites_for_android
-from ws_client import WSClient, start_heartbeat
+from http_client import HttpClient
 from executor_engine import ExecutorEngine
 
 VERSION = "1.0.0"
@@ -19,7 +19,6 @@ VERSION = "1.0.0"
 class PCExecutor:
     def __init__(self, server_url=None, script_dir=None):
         self.platform_url = server_url or "http://localhost:8000"
-        self.ws_url = server_url.replace('http://', 'ws://').replace('https://', 'wss://') + "/api/pc/ws/executor"
         self.script_dir = script_dir or os.path.dirname(os.path.abspath(__file__))
         self.executor_name = socket.gethostname()
         self.executor_type = "pc"
@@ -28,7 +27,7 @@ class PCExecutor:
         
         self.uuid_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.executor_uuid')
         self.uuid = self._load_or_create_uuid()
-        self.ws_client = None
+        self.http_client = None
         self.engine = ExecutorEngine(self.script_dir)
         self.current_task = None
         self._heartbeat_thread = None
@@ -118,7 +117,7 @@ class PCExecutor:
         
     def on_connect(self):
         self.connected = True
-        self.log("[已连接] WebSocket 连接成功", "success")
+        self.log("[已连接] 连接成功", "success")
         
     def _execute_task(self, task: dict):
         report_id = task.get('id')
@@ -146,8 +145,8 @@ class PCExecutor:
         report_html = self.engine.read_report(report_id)
         status = 'success' if return_code == 0 else 'failed'
         
-        if self.ws_client and self.connected:
-            self.ws_client.send_report(
+        if self.http_client and self.connected:
+            self.http_client.send_report(
                 report_id=report_id,
                 status=status,
                 logs=logs,
@@ -201,32 +200,36 @@ class PCExecutor:
         self.connected = True
         self.on_connect()
         
-        self.ws_client = WSClient(
-            server_url=self.ws_url,
+        self.http_client = HttpClient(
+            server_url=self.platform_url,
             executor_uuid=self.uuid,
             on_task_received=self.on_task_received,
             on_disconnect=self.on_disconnect
         )
         
-        threading.Thread(target=self._run_websocket, daemon=True).start()
+        threading.Thread(target=self._run_http, daemon=True).start()
         
         self.log("=" * 50, "info")
         return True
     
-    def _run_websocket(self):
-        """WebSocket 连接运行在后端线程"""
+    def _run_http(self):
         try:
-            self._heartbeat_thread = start_heartbeat(self.ws_client, 30)
-            self.ws_client.start()
+            self.log("[HTTP] 开始连接服务器...", "info")
+            self.http_client.start()
+            self.log("[HTTP] 连接已启动", "success")
+            self.connected = True
+            self.on_connect()
+            self.log("[HTTP] 初始化完成", "success")
         except Exception as e:
-            self.log(f"[WebSocket错误] {e}", "error")
+            self.log(f"[HTTP错误] {e}", "error")
             self.running = False
+            self.connected = False
             self.on_disconnect()
-        
+
     def stop(self):
         self.running = False
-        if self.ws_client:
-            self.ws_client.stop()
+        if self.http_client:
+            self.http_client.stop()
         self.connected = False
         self._report_status("offline")
         self.log("[已停止] 执行器已停止", "info")
@@ -250,7 +253,6 @@ class PCExecutor:
     def update_config(self, server_url=None, script_dir=None):
         if server_url:
             self.platform_url = server_url
-            self.ws_url = server_url.replace('http://', 'ws://').replace('https://', 'wss://') + "/api/pc/ws/executor"
         if script_dir:
             self.script_dir = script_dir
             self.engine = ExecutorEngine(self.script_dir)
