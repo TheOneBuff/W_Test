@@ -36,6 +36,7 @@ def report_to_schema(report_obj: models.TestReport) -> schemas.TestReportOut:
     # 手动填充需要关联查询的字段
     if report_obj.test_case:
         dto.test_case_name = report_obj.test_case.name
+        dto.case_type = report_obj.test_case.case_type
     return dto
 
 

@@ -100,7 +100,7 @@ class TestReport(Base):
     batch_id = Column(String(50), index=True, nullable=True)
 
     status = Column(SqEnum(TaskStatus), default=TaskStatus.PENDING)
-    start_time = Column(DateTime, default=datetime.now())
+    start_time = Column(DateTime, default=datetime.now)
     end_time = Column(DateTime, nullable=True)
     report_path = Column(String(255), nullable=True)
     logs = Column(Text, nullable=True)

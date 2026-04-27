@@ -331,6 +331,22 @@ def executor_report(data: dict, db: Session = Depends(get_db)):
     report_html = data.get('report_html', '')
     error_info = data.get('error_info', '')
     logger.info(f"[HTTP] 收到报告: report_id={report_id}, status={status}")
+    
+    report = db.query(models.TestReport).filter(models.TestReport.id == report_id).first()
+    if report:
+        report.status = models.TaskStatus.SUCCESS if status == 'success' else models.TaskStatus.FAILED
+        report.end_time = datetime.now()
+        report.logs = logs
+        if report_html:
+            report.report_path = report_html
+        
+        executor = db.query(models.Executor).filter(models.Executor.id == report.executor_id).first()
+        if executor:
+            executor.status = "online"
+        
+        db.commit()
+        logger.info(f"[HTTP] 报告已更新: report_id={report_id}, status={report.status}")
+    
     return {"status": "ok", "report_id": report_id}
 
 
@@ -343,7 +359,19 @@ def get_pending_tasks(uuid: str, db: Session = Depends(get_db)):
         models.TestReport.executor_id == executor.id,
         models.TestReport.status == 'pending'
     ).all()
-    return [{"id": t.id, "name": t.name} for t in tasks]
+    result = []
+    for t in tasks:
+        case = db.query(models.TestCase).filter(models.TestCase.id == t.test_case_id).first()
+        user_id = case.project.owner_id if case and case.project else 1
+        llm_env_vars = _get_llm_env_vars(db, user_id)
+        result.append({
+            "id": t.id,
+            "name": case.name if case else "未知",
+            "script": case.script_content if case else "",
+            "script_type": case.script_type if case else "yaml",
+            "llm_config": llm_env_vars
+        })
+    return result
 
 
 @router.post("/executors/status")
@@ -366,12 +394,37 @@ def executor_log(data: dict, db: Session = Depends(get_db)):
 class TaskDispatchRequest(BaseModel):
     case_id: int
     executor_id: int
+    llm_config_id: Optional[int] = None
 
 
 class TaskDispatchResponse(BaseModel):
     id: int
     status: str
     executor_name: Optional[str] = None
+
+
+def _get_llm_env_vars(db: Session, user_id: int, llm_config_id: Optional[int] = None) -> dict:
+    if llm_config_id:
+        llm = db.query(models.LLMConfig).filter(
+            models.LLMConfig.id == llm_config_id,
+            models.LLMConfig.user_id == user_id
+        ).first()
+    else:
+        llm = db.query(models.LLMConfig).filter(
+            models.LLMConfig.user_id == user_id,
+            models.LLMConfig.is_active_exec == True
+        ).first()
+    
+    if not llm:
+        return {}
+    
+    return {
+        "api_key": llm.api_key or "",
+        "model_name": llm.model_name or "gpt-4o",
+        "base_url": llm.base_url or "",
+        "provider": llm.provider or "openai",
+        "model_family": llm.model_family,
+    }
 
 
 @router.post("/tasks/dispatch", response_model=schemas.TestReportOut)
@@ -394,12 +447,21 @@ def dispatch_pc_task(
     if executor.last_heartbeat and executor.last_heartbeat < timeout:
         raise HTTPException(400, "Executor is offline")
     
+    logger.info(f"[任务下发] case_id={data.case_id}, executor_id={data.executor_id}, executor_name={executor.name}")
+    
+    # 获取 LLM 配置
+    user_id = case.project.owner_id if case.project else 1
+    llm_env_vars = _get_llm_env_vars(db, user_id, data.llm_config_id)
+    logger.info(f"[任务下发] LLM配置: {llm_env_vars.get('model_name', '未配置')}")
+    
     new_report = models.TestReport(
         test_case_id=data.case_id,
+        executor_id=data.executor_id,
         status=models.TaskStatus.PENDING,
         script_content=case.script_content
     )
     db.add(new_report)
+    logger.info(f"[任务下发] TestReport 已写入, start_time={new_report.start_time}")
     
     executor.status = "busy"
     executor.last_heartbeat = datetime.now()

@@ -96,11 +96,13 @@ class HttpClient:
         try:
             url = self._get_url("/api/pc/executors/status")
             data = {
-                'report_id': report_id,
+                'uuid': self.executor_uuid,
                 'status': status,
+                'report_id': report_id,
                 'logs': logs
             }
-            requests.post(url, json=data, timeout=10)
+            resp = requests.post(url, json=data, timeout=10)
+            print(f"[HTTP] 状态发送: report_id={report_id}, status={status}, code={resp.status_code}")
         except Exception as e:
             print(f"[HTTP] 状态发送失败: {e}")
 

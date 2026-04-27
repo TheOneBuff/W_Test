@@ -145,6 +145,7 @@ class TestReportOut(BaseModel):
     # 新增
     test_case_id: int
     test_case_name: Optional[str] = None # 需要后端 join 填充
+    case_type: Optional[str] = None # 用例类型：web/pc
 
     class Config:
         from_attributes = True

@@ -125,19 +125,23 @@ class PCExecutor:
         script_type = task.get('script_type', 'typescript')
         llm_config = task.get('llm_config', {})
         
-        self.log(f"[执行中] 开始执行任务 #{report_id}", "info")
+        self.log(f"[任务开始] ID={report_id}, 类型={script_type}", "info")
+        self.log(f"[LLM配置] model={llm_config.get('model_name', 'N/A')}, base_url={llm_config.get('base_url', 'N/A')}", "info")
         
-        env_vars = {}
         if llm_config.get('api_key'):
-            env_vars['OPENAI_API_KEY'] = llm_config['api_key']
-        if llm_config.get('base_url'):
-            env_vars['OPENAI_BASE_URL'] = llm_config['base_url']
-            
+            masked_key = llm_config['api_key'][:8] + '***' + llm_config['api_key'][-4:]
+            self.log(f"[LLM配置] api_key={masked_key}", "info")
+        else:
+            self.log("[LLM配置] api_key=未设置", "warning")
+        
+        if self.http_client and self.connected:
+            self.http_client.send_status(report_id, 'running')
+        
         return_code, stdout, stderr = self.engine.execute(
             script_content,
             script_type,
             report_id,
-            env_vars
+            llm_config
         )
         
         logs = f"STDOUT:\n{stdout}\n\nSTDERR:\n{stderr}"
@@ -145,7 +149,10 @@ class PCExecutor:
         report_html = self.engine.read_report(report_id)
         status = 'success' if return_code == 0 else 'failed'
         
+        self.log(f"[执行结果] 退出码={return_code}", "info" if return_code == 0 else "error")
+        
         if self.http_client and self.connected:
+            self.log(f"[上报] 发送报告 report_id={report_id}, status={status}", "info")
             self.http_client.send_report(
                 report_id=report_id,
                 status=status,
@@ -159,18 +166,19 @@ class PCExecutor:
         self.current_task = None
         
     def _upload_report(self, report_id: int, status: str, logs: str, report_html: str):
-        try:
-            data = {
-                'report_id': report_id,
-                'status': status,
-                'logs': logs,
-                'report_path': report_html
-            }
-            resp = requests.post(f"{self.platform_url}/api/pc/reports/upload", json=data, timeout=30)
-            if resp.status_code == 200:
-                self.log(f"[上报成功] 报告 #{report_id} 已上传", "success")
-        except Exception as e:
-            self.log(f"[上报异常] {e}", "error")
+        pass
+        # try:
+        #     data = {
+        #         'report_id': report_id,
+        #         'status': status,
+        #         'logs': logs,
+        #         'report_path': report_html
+        #     }
+        #     resp = requests.post(f"{self.platform_url}/api/pc/reports/upload", json=data, timeout=30)
+        #     if resp.status_code == 200:
+        #         self.log(f"[上报成功] 报告 #{report_id} 已上传", "success")
+        # except Exception as e:
+        #     self.log(f"[上报异常] {e}", "error")
             
     def start(self):
         self.running = True
