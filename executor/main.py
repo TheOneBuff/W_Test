@@ -145,22 +145,34 @@ class PCExecutor:
         )
         
         logs = f"STDOUT:\n{stdout}\n\nSTDERR:\n{stderr}"
-        
-        report_html = self.engine.read_report(report_id)
+        self.log(f"[执行结果] 报告id={report_id}")
+        report_file = self.engine.read_report(report_id)
         status = 'success' if return_code == 0 else 'failed'
         
         self.log(f"[执行结果] 退出码={return_code}", "info" if return_code == 0 else "error")
         
         if self.http_client and self.connected:
+            report_path = ""
+            if report_file and os.path.exists(report_file):
+                # 上传报告文件
+                self.log(f"[上报] 上传报告文件: {report_file}")
+                upload_result = self.http_client.upload_report_file(report_id, report_file)
+                if upload_result and upload_result.get('status') == 'ok':
+                    report_path = upload_result.get('file_path', '')
+                    self.log(f"[上报] 报告文件上传成功: {report_path}")
+                else:
+                    self.log(f"[上报] 报告文件上传失败", "error")
+            
+            self.log(f"[上报] 报告地址 report_path={report_path}")
             self.log(f"[上报] 发送报告 report_id={report_id}, status={status}", "info")
             self.http_client.send_report(
                 report_id=report_id,
                 status=status,
                 logs=logs,
-                report_html=report_html
+                report_html=report_path
             )
             
-        self._upload_report(report_id, status, logs, report_html)
+        # self._upload_report(report_id, status, logs, report_html)
         
         self.log(f"[任务完成] Task #{report_id} - 状态: {status}", "success" if status == "success" else "error")
         self.current_task = None

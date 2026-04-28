@@ -2,6 +2,7 @@ import json
 import threading
 import time
 import requests
+import os
 
 class HttpClient:
     def __init__(self, server_url: str, executor_uuid: str, on_task_received=None, on_disconnect=None):
@@ -91,6 +92,19 @@ class HttpClient:
             print(f"[HTTP] 报告发送: report_id={report_id}, status={resp.status_code}")
         except Exception as e:
             print(f"[HTTP] 报告发送失败: {e}")
+    
+    def upload_report_file(self, report_id: int, file_path: str):
+        try:
+            url = self._get_url("/api/pc/executors/report/upload")
+            with open(file_path, 'rb') as f:
+                files = {'file': (os.path.basename(file_path), f)}
+                data = {'report_id': report_id}
+                resp = requests.post(url, data=data, files=files, timeout=60)
+            print(f"[HTTP] 报告文件上传: report_id={report_id}, status={resp.status_code}")
+            return resp.json()
+        except Exception as e:
+            print(f"[HTTP] 报告文件上传失败: {e}")
+            return None
 
     def send_status(self, report_id: int, status: str, logs: str = ''):
         try:

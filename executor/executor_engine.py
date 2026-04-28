@@ -12,9 +12,17 @@ class ExecutorEngine:
         self.script_file = None
         self.report_file = None
         
+    def _get_task_dir(self, task_id: int) -> str:
+        task_dir = os.path.join(self.working_dir, f"task_{task_id}")
+        if not os.path.exists(task_dir):
+            os.makedirs(task_dir, exist_ok=True)
+            print(f"[Executor] 创建任务目录: {task_dir}")
+        return task_dir
+    
     def write_script_file(self, script_content: str, script_type: str, task_id: int) -> str:
         ext = 'ts' if script_type == 'typescript' else 'yaml'
-        self.script_file = os.path.join(self.working_dir, f"task_{task_id}_script.{ext}")
+        task_dir = self._get_task_dir(task_id)
+        self.script_file = os.path.join(task_dir, f"task_{task_id}_script.{ext}")
         
         with open(self.script_file, 'w', encoding='utf-8') as f:
             f.write(script_content)
@@ -22,7 +30,8 @@ class ExecutorEngine:
         return self.script_file
         
     def write_html_report(self, html_content: str, task_id: int) -> str:
-        self.report_file = os.path.join(self.working_dir, f"task_{task_id}_report.html")
+        task_dir = self._get_task_dir(task_id)
+        self.report_file = os.path.join(task_dir, f"task_{task_id}_report.html")
         
         with open(self.report_file, 'w', encoding='utf-8') as f:
             f.write(html_content)
@@ -74,7 +83,8 @@ class ExecutorEngine:
         return env
         
     def execute_typescript(self, script_file: str, task_id: int, env_vars: dict = None) -> tuple:
-        report_file = os.path.join(self.working_dir, f"task_{task_id}_report.html")
+        task_dir = self._get_task_dir(task_id)
+        report_file = os.path.join(task_dir, f"task_{task_id}_report.html")
         
         env = self._build_env(env_vars, preserve_path=True)
         
@@ -82,7 +92,7 @@ class ExecutorEngine:
         cmd_str = f'npx tsx {script_name}'
         
         print(f"[TS执行] 命令: {cmd_str}")
-        print(f"[TS执行] 工作目录: {self.working_dir}")
+        print(f"[TS执行] 工作目录: {task_dir}")
         print(f"[TS执行] 脚本文件: {script_name}")
         
         try:
@@ -92,7 +102,7 @@ class ExecutorEngine:
                 stderr=subprocess.PIPE,
                 text=True,
                 encoding='utf-8',
-                cwd=self.working_dir,
+                cwd=task_dir,
                 env=env,
                 shell=True
             )
@@ -125,13 +135,15 @@ class ExecutorEngine:
         
         env = self._build_env(env_vars, preserve_path=True)
             
-        report_file = os.path.join(self.working_dir, f"task_{task_id}_report.html")
+        task_dir = self._get_task_dir(task_id)
+        report_file = os.path.join(task_dir, f"task_{task_id}_report.html")
         script_name = os.path.basename(script_file)
-        cmd_str = f'tsx runner.ts {script_name}'
+        cmd_str = f'tsx runner.ts {script_name} {report_file}'
         
         print(f"[YAML执行] 命令: {cmd_str}")
-        print(f"[YAML执行] 工作目录: {self.working_dir}")
+        print(f"[YAML执行] 工作目录: {task_dir}")
         print(f"[YAML执行] 脚本文件: {script_name}")
+        print(f"[YAML执行] 报告文件: {report_file}")
         
         try:
             process = subprocess.Popen(
@@ -140,7 +152,7 @@ class ExecutorEngine:
                 stderr=subprocess.PIPE,
                 text=True,
                 encoding='utf-8',
-                cwd=self.working_dir,
+                cwd=task_dir,
                 env=env,
                 shell=True
             )
@@ -175,10 +187,20 @@ class ExecutorEngine:
             return self.execute_yaml(script_content, task_id, env_vars)
             
     def read_report(self, task_id: int) -> str:
-        report_file = os.path.join(self.working_dir, f"task_{task_id}_report.html")
-        if os.path.exists(report_file):
-            with open(report_file, 'r', encoding='utf-8') as f:
-                return f.read()
+        task_dir = self._get_task_dir(task_id)
+        report_dir = os.path.join(task_dir, "midscene_run", "report")
+        print(f"[Executor] 任务目录: {task_dir}")
+        print(f"[Executor] 报告目录: {report_dir}")
+        
+        if os.path.exists(report_dir):
+            # 查找目录下的 HTML 文件
+            for file_name in os.listdir(report_dir):
+                if file_name.endswith('.html') and file_name.startswith('computer-'):
+                    report_file = os.path.join(report_dir, file_name)
+                    print(f"[Executor] 找到报告文件: {report_file}")
+                    if os.path.exists(report_file):
+                        return report_file
+        
         return ''
 
 

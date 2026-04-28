@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect, Body
+from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect, Body, Form, UploadFile, File
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
 from typing import Optional, List
 from pydantic import BaseModel
 import json
 import logging
+import os
 
 from ..database import get_db
 from .. import models, schemas
@@ -13,7 +14,8 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 EXECUTOR_OFFLINE_TIMEOUT = 60
-
+# 报告上传目录
+REPORT_UPLOAD_DIR = "/data/reports"
 
 def update_executor_heartbeat(db: Session, uuid: str):
     executor = db.query(models.Executor).filter(models.Executor.uuid == uuid).first()
@@ -323,6 +325,10 @@ def executor_heartbeat(uuid: str, db: Session = Depends(get_db)):
     return {"status": "error", "message": "executor not found"}
 
 
+# 确保上传目录存在
+if not os.path.exists(REPORT_UPLOAD_DIR):
+    os.makedirs(REPORT_UPLOAD_DIR, exist_ok=True)
+
 @router.post("/executors/report")
 def executor_report(data: dict, db: Session = Depends(get_db)):
     report_id = data.get('report_id')
@@ -348,6 +354,37 @@ def executor_report(data: dict, db: Session = Depends(get_db)):
         logger.info(f"[HTTP] 报告已更新: report_id={report_id}, status={report.status}")
     
     return {"status": "ok", "report_id": report_id}
+
+@router.post("/executors/report/upload")
+async def upload_report_file(
+    report_id: int = Form(...),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db)
+):
+    logger.info(f"[HTTP] 收到报告文件上传: report_id={report_id}, filename={file.filename}")
+    
+    # 创建报告目录结构
+    report_dir = os.path.join(REPORT_UPLOAD_DIR, f"run_{report_id}", "midscene_run", "report")
+    if not os.path.exists(report_dir):
+        os.makedirs(report_dir, exist_ok=True)
+    
+    # 保存文件
+    file_path = os.path.join(report_dir, file.filename)
+    with open(file_path, "wb") as buffer:
+        content = await file.read()
+        buffer.write(content)
+    
+    # 保存相对路径到数据库（去掉 /data/reports/ 前缀）
+    relative_path = file_path.replace(REPORT_UPLOAD_DIR, "").lstrip("/")
+    
+    # 更新报告记录
+    report = db.query(models.TestReport).filter(models.TestReport.id == report_id).first()
+    if report:
+        report.report_path = relative_path
+        db.commit()
+        logger.info(f"[HTTP] 报告文件已保存: report_id={report_id}, path={relative_path}")
+    
+    return {"status": "ok", "report_id": report_id, "file_path": relative_path}
 
 
 @router.get("/executors/{uuid}/tasks/pending")
