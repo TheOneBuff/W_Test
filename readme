@@ -1,5 +1,6 @@
 1:#构建并启动后端 (在 根目录):
 docker-compose up -d --build
+docker-compose up -d --build nginx
 2:初始化数据库用户
 docker-compose exec backend python init_db.py
 3:启动前端 (在 frontend 目录):
