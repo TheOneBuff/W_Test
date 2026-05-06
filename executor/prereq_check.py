@@ -66,16 +66,13 @@ def check_midscene():
     stdout, code = _run_cmd('npx @midscene/computer --version', timeout=30)
     if code == 0 and stdout and 'not found' not in stdout.lower():
         return {'passed': True, 'version': stdout}
-    return {'passed': False, 'message': 'Midscene 未安装'}
+    return {'passed': False, 'message': 'Midscene/computer 未安装'}
 
-
-def check_midscene_in_node_modules():
-    node_modules_path = get_node_modules_path()
-    if node_modules_path and os.path.exists(node_modules_path):
-        midscene_path = os.path.join(node_modules_path, '@midscene', 'computer')
-        if os.path.exists(midscene_path):
-            return {'passed': True, 'path': midscene_path}
-    return {'passed': False, 'message': 'Midscene 不在全局 node_modules 中'}
+def check_midscene_android():
+    stdout, code = _run_cmd('npx @midscene/android --version', timeout=30)
+    if code == 0 and stdout and 'not found' not in stdout.lower():
+        return {'passed': True, 'version': stdout}
+    return {'passed': False, 'message': 'Midscene/android 未安装'}
 
 
 def get_node_modules_path():
@@ -136,7 +133,7 @@ def check_prerequisites_for_android():
         'npx': check_npm(),
         'adb': check_adb(),
         'android_sdk': check_android_sdk(),
-        'midscene_android': check_midscene()
+        'midscene_android': check_midscene_android()
     }
     
     all_passed = all(checks[key]['passed'] for key in checks)

@@ -279,13 +279,14 @@ class PCExecutor:
 
 
 class AndroidExecutor:
-    def __init__(self, server_url=None):
+    def __init__(self, server_url=None, script_dir=None):
         self.platform_url = server_url or "http://localhost:8000"
         self.api_base = f"{self.platform_url}/api/android"
         self.executor_name = socket.gethostname()
         self.executor_type = "android"
         self.running = False
         self._log_callback = None
+        self.script_dir = script_dir or os.path.dirname(os.path.abspath(__file__))
         
     def set_log_callback(self, callback):
         self._log_callback = callback
@@ -334,7 +335,9 @@ def show_config_dialog():
         root.geometry("500x380")
         root.resizable(False, False)
         
-        executor_type_var = tk.StringVar(value="pc")
+        # 使用多选框来支持同时选择 PC 和 Android
+        pc_selected = tk.BooleanVar(value=True)
+        android_selected = tk.BooleanVar(value=False)
         server_url_var = tk.StringVar(value="http://localhost:8000")
         script_dir_var = tk.StringVar(value=os.path.dirname(os.path.abspath(__file__)))
         
@@ -343,22 +346,10 @@ def show_config_dialog():
             if folder:
                 script_dir_var.set(folder)
         
-        def on_type_change(*args):
-            if executor_type_var.get() == "android":
-                script_dir_label.config(state=tk.DISABLED)
-                script_dir_entry.config(state=tk.DISABLED)
-                browse_btn.config(state=tk.DISABLED)
-            else:
-                script_dir_label.config(state=tk.NORMAL)
-                script_dir_entry.config(state=tk.NORMAL)
-                browse_btn.config(state=tk.NORMAL)
-        
-        executor_type_var.trace('w', on_type_change)
-        
         tk.Label(root, text="执行模式:", font=('Arial', 11)).place(x=30, y=30)
-        tk.Radiobutton(root, text="PC 桌面自动化", variable=executor_type_var, value="pc", 
+        tk.Checkbutton(root, text="PC 桌面自动化", variable=pc_selected, 
                       font=('Arial', 10)).place(x=130, y=30)
-        tk.Radiobutton(root, text="Android 自动化", variable=executor_type_var, value="android",
+        tk.Checkbutton(root, text="Android 自动化", variable=android_selected,
                       font=('Arial', 10)).place(x=280, y=30)
         
         tk.Label(root, text="服务器地址:", font=('Arial', 11)).place(x=30, y=80)
@@ -385,6 +376,17 @@ def show_config_dialog():
         tk.Label(info_frame, text="• 需要 ADB 连接手机", font=('Arial', 9), bg='#f0f0f0').place(x=230, y=48)
         
         def on_confirm():
+            # 获取选中的模式
+            selected_types = []
+            if pc_selected.get():
+                selected_types.append("pc")
+            if android_selected.get():
+                selected_types.append("android")
+            
+            # 如果没有选择任何模式，默认选择 PC
+            if not selected_types:
+                selected_types = ["pc"]
+            
             url = server_url_var.get().strip()
             if url:
                 if not url.startswith('http'):
@@ -393,7 +395,7 @@ def show_config_dialog():
                     url = url.rstrip('/') + ':8000'
             else:
                 url = "http://localhost:8000"
-            root.executor_type = executor_type_var.get()
+            root.executor_type = ",".join(selected_types)  # 使用逗号分隔多个类型
             root.server_url = url
             root.script_dir = script_dir_var.get().strip() or os.path.dirname(os.path.abspath(__file__))
             root.destroy()
@@ -644,7 +646,7 @@ def parse_arguments():
 
 
 def main():
-    args = parse_arguments()
+    args = parse_args()
     
     executor_type = args.type
     server_url = args.server
@@ -659,10 +661,49 @@ def main():
     
     executor_type = executor_type or "pc"
     
-    if executor_type == "android":
-        executor = AndroidExecutor(server_url=server_url)
-    else:
+    # 解析选择的执行模式（支持逗号分隔的多个模式）
+    selected_types = [t.strip() for t in executor_type.split(",")]
+    
+    # 根据选择的模式进行环境检查
+    from prereq_check import check_prerequisites_for_pc, check_prerequisites_for_android
+    
+    all_checks = {}
+    if "pc" in selected_types:
+        pc_checks = check_prerequisites_for_pc()
+        all_checks.update(pc_checks['checks'])
+    if "android" in selected_types:
+        android_checks = check_prerequisites_for_android()
+        all_checks.update(android_checks['checks'])
+    
+    # 打印环境检查结果
+    print("\n" + "="*50)
+    print("环境依赖检查结果")
+    print("="*50)
+    all_passed = True
+    for name, check in all_checks.items():
+        status = '✅' if check['passed'] else '❌'
+        msg = check.get('message', f"版本: {check.get('version', 'N/A')}")
+        print(f"  {status} {name}: {msg}")
+        if not check['passed']:
+            all_passed = False
+    
+    if not all_passed:
+        print("\n⚠️  警告: 部分依赖未满足，请安装后再启动")
+        if not args.no_gui:
+            import tkinter as tk
+            from tkinter import messagebox
+            root = tk.Tk()
+            root.withdraw()
+            messagebox.showwarning("依赖检查", "部分依赖未满足，请检查日志并安装后再启动")
+    
+    # 创建执行器（如果选择了多个模式，默认使用 PC 模式）
+    if "pc" in selected_types:
         executor = PCExecutor(server_url=server_url, script_dir=script_dir)
+    else:
+        executor = AndroidExecutor(server_url=server_url, script_dir=script_dir)
+    
+    # 设置支持的模式列表
+    executor.supported_types = selected_types
     
     if args.no_gui:
         executor.start()
