@@ -12,10 +12,8 @@ from .models import TestCase, NotificationConfig
 from .rag import RagService
 from .api.notification import send_feishu_notification
 
-from .config import REDIS_BROKER_URL
-
 # 配置 Celery
-celery_app = Celery('midscene_worker', broker=REDIS_BROKER_URL)
+celery_app = Celery('midscene_worker', broker='redis://redis:6379/0')
 
 # [修改] 使用 /data 目录，配合 Docker 的 volume 挂载，防止污染 backend 代码目录
 REPORT_DIR = "/data/reports"

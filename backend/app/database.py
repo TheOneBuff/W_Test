@@ -1,6 +1,7 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
-from .config import SQLALCHEMY_DATABASE_URL
+
+SQLALCHEMY_DATABASE_URL = "mysql+pymysql://root:whp1148..@db/w_test_db?charset=utf8mb4"
 
 engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"init_command": "SET time_zone='+08:00'"})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

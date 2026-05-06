@@ -1,6 +1,6 @@
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
-from ..config import SQLALCHEMY_DATABASE_URL
+from ..database import SQLALCHEMY_DATABASE_URL
 
 # 使用数据库存储 Job，防止重启丢失
 jobstores = {
