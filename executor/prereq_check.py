@@ -68,6 +68,12 @@ def check_midscene():
         return {'passed': True, 'version': stdout}
     return {'passed': False, 'message': 'Midscene/computer 未安装'}
 
+def check_midscene_cli():
+    stdout, code = _run_cmd('npm midscene/cli --version', timeout=30)
+    if code == 0 and stdout and 'not found' not in stdout.lower():
+        return {'passed': True, 'version': stdout}
+    return {'passed': False, 'message': 'Midscene/cli 未安装'}
+
 def check_midscene_android():
     stdout, code = _run_cmd('npx @midscene/android --version', timeout=30)
     if code == 0 and stdout and 'not found' not in stdout.lower():
@@ -102,7 +108,7 @@ def check_android_sdk():
         result = subprocess.run(['echo', '%ANDROID_HOME%'], capture_output=True, text=True, shell=True)
         android_home = result.stdout.strip()
         if android_home and os.path.exists(android_home):
-            return {'passed': True, 'path': android_home}
+            return {'passed': True, 'path': android_home, 'message': f'路径: {android_home}'}
         return {'passed': False, 'message': 'ANDROID_HOME 环境变量未设置'}
     except Exception as e:
         return {'passed': False, 'message': 'ANDROID_HOME 环境变量未设置'}
@@ -114,7 +120,8 @@ def check_prerequisites_for_pc():
         'nodejs': check_nodejs(),
         'npx': check_npm(),
         'playwright': check_playwright(),
-        'midscene': check_midscene()
+        'midscene': check_midscene(),
+        'midscene_cli': check_midscene_cli(),
     }
     
     all_passed = all(checks[key]['passed'] for key in checks)
@@ -149,16 +156,36 @@ def run_all_checks():
     return check_prerequisites_for_pc()
 
 
-def auto_install(checks):
+def auto_install(checks, install_type="pc"):
     install_commands = []
-    
-    if not checks['playwright']['passed']:
-        install_commands.append('pip install playwright && playwright install')
-    
-    if not checks['midscene']['passed']:
-        install_commands.append('npm install -g @midscene/web')
-    
+
+    if install_type == "pc":
+        if not checks.get('playwright', {}).get('passed', True):
+            install_commands.append('pip install playwright && playwright install')
+        if not checks.get('midscene', {}).get('passed', True):
+            install_commands.append('npm install -g @midscene/computer')
+    elif install_type == "android":
+        if not checks.get('midscene_android', {}).get('passed', True):
+            install_commands.append('npm install -g @midscene/android')
+
     return install_commands
+
+
+def run_auto_install(checks, install_type="pc"):
+    commands = auto_install(checks, install_type)
+    if not commands:
+        print("[自动安装] 所有依赖已满足，无需安装")
+        return True
+
+    print(f"[自动安装] 将执行 {len(commands)} 条安装命令...")
+    for cmd in commands:
+        print(f"  -> {cmd}")
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        if result.returncode != 0:
+            print(f"[自动安装] 失败: {result.stderr[:200]}")
+            return False
+        print(f"[自动安装] 成功")
+    return True
 
 
 if __name__ == '__main__':

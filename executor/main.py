@@ -16,35 +16,33 @@ from executor_engine import ExecutorEngine
 VERSION = "1.0.0"
 
 
-class PCExecutor:
+class BaseExecutor:
     def __init__(self, server_url=None, script_dir=None):
         self.platform_url = server_url or "http://localhost:8000"
         self.script_dir = script_dir or os.path.dirname(os.path.abspath(__file__))
         self.executor_name = socket.gethostname()
-        self.executor_type = "pc"
         self.running = False
         self.connected = False
-        
-        self.uuid_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.executor_uuid')
+        self.uuid_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), self._uuid_filename())
         self.uuid = self._load_or_create_uuid()
         self.http_client = None
         self.engine = ExecutorEngine(self.script_dir)
         self.current_task = None
-        self._heartbeat_thread = None
         self._log_callback = None
-        
-    def _load_or_create_uuid(self) -> str:
-        uuid_file = self.uuid_file
-        if os.path.exists(uuid_file):
-            with open(uuid_file, 'r') as f:
+
+    def _uuid_filename(self):
+        raise NotImplementedError
+
+    def _load_or_create_uuid(self):
+        if os.path.exists(self.uuid_file):
+            with open(self.uuid_file, 'r') as f:
                 return f.read().strip()
-        
         new_uuid = str(uuid.uuid4())
-        with open(uuid_file, 'w') as f:
+        with open(self.uuid_file, 'w') as f:
             f.write(new_uuid)
         return new_uuid
-        
-    def _get_system_info(self) -> dict:
+
+    def _get_system_info(self):
         return {
             'os_version': f"{platform.system()} {platform.release()}",
             'hostname': platform.node(),
@@ -53,8 +51,8 @@ class PCExecutor:
             'executor_type': self.executor_type,
             'script_types': ['typescript', 'yaml']
         }
-        
-    def _get_local_ip(self) -> str:
+
+    def _get_local_ip(self):
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             s.connect(("8.8.8.8", 80))
@@ -63,19 +61,22 @@ class PCExecutor:
             return ip
         except:
             return '127.0.0.1'
-            
+
     def set_log_callback(self, callback):
         self._log_callback = callback
-        
+
     def log(self, message, level="info"):
         print(message)
         if self._log_callback:
             self._log_callback(message, level)
-            
-    def run_prereq_checks(self) -> dict:
-        return check_prerequisites_for_pc()
-        
-    def register_to_server(self) -> bool:
+
+    def run_prereq_checks(self):
+        raise NotImplementedError
+
+    def _get_install_type(self):
+        raise NotImplementedError
+
+    def register_to_server(self):
         system_info = self._get_system_info()
         data = {
             'name': self.executor_name,
@@ -87,159 +88,133 @@ class PCExecutor:
             'ip_address': system_info['ip_address'],
             'version': system_info['executor_version']
         }
-        
         self.log(f"[注册] 目标服务器: {self.platform_url}", "info")
-        self.log(f"[注册] 发送数据: {json.dumps(data, ensure_ascii=False)}", "info")
-        
         try:
             url = f"{self.platform_url}/api/pc/executors/register"
-            self.log(f"[注册] 请求URL: {url}", "info")
-            
             resp = requests.post(url, json=data, timeout=10)
             self.log(f"[注册] 响应状态码: {resp.status_code}", "info")
-            self.log(f"[注册] 响应内容: {resp.text}", "info")
-            
-            if resp.status_code == 200:
-                return True
-            return False
+            return resp.status_code == 200
         except Exception as e:
-            self.log(f"[注册] 连接服务器失败: {type(e).__name__}: {e}", "error")
+            self.log(f"[注册] 连接服务器失败: {e}", "error")
             return False
-            
-    def on_task_received(self, task: dict):
+
+    def on_task_received(self, task):
         self.log(f"[收到任务] Task #{task.get('id')}", "task")
         self.current_task = task
         self._execute_task(task)
-        
+
     def on_disconnect(self):
         self.connected = False
         self.log("[连接断开] 正在尝试重连...", "warning")
-        
+
     def on_connect(self):
         self.connected = True
         self.log("[已连接] 连接成功", "success")
-        
-    def _execute_task(self, task: dict):
+
+    def _execute_task(self, task):
         report_id = task.get('id')
         script_content = task.get('script', '')
         script_type = task.get('script_type', 'typescript')
         llm_config = task.get('llm_config', {})
-        
+
         self.log(f"[任务开始] ID={report_id}, 类型={script_type}", "info")
-        self.log(f"[LLM配置] model={llm_config.get('model_name', 'N/A')}, base_url={llm_config.get('base_url', 'N/A')}", "info")
-        
-        if llm_config.get('api_key'):
-            masked_key = llm_config['api_key'][:8] + '***' + llm_config['api_key'][-4:]
-            self.log(f"[LLM配置] api_key={masked_key}", "info")
-        else:
-            self.log("[LLM配置] api_key=未设置", "warning")
-        
+
         if self.http_client and self.connected:
             self.http_client.send_status(report_id, 'running')
-        
+
         return_code, stdout, stderr = self.engine.execute(
-            script_content,
-            script_type,
-            report_id,
-            llm_config
+            script_content, script_type, report_id, llm_config
         )
-        
+
         logs = f"STDOUT:\n{stdout}\n\nSTDERR:\n{stderr}"
-        self.log(f"[执行结果] 报告id={report_id}")
-        report_file = self.engine.read_report(report_id)
         status = 'success' if return_code == 0 else 'failed'
-        
         self.log(f"[执行结果] 退出码={return_code}", "info" if return_code == 0 else "error")
-        
+
         if self.http_client and self.connected:
             report_path = ""
+            report_file = self.engine.read_report(report_id)
             if report_file and os.path.exists(report_file):
-                # 上传报告文件
-                self.log(f"[上报] 上传报告文件: {report_file}")
                 upload_result = self.http_client.upload_report_file(report_id, report_file)
                 if upload_result and upload_result.get('status') == 'ok':
                     report_path = upload_result.get('file_path', '')
-                    self.log(f"[上报] 报告文件上传成功: {report_path}")
-                else:
-                    self.log(f"[上报] 报告文件上传失败", "error")
-            
-            self.log(f"[上报] 报告地址 report_path={report_path}")
-            self.log(f"[上报] 发送报告 report_id={report_id}, status={status}", "info")
             self.http_client.send_report(
-                report_id=report_id,
-                status=status,
-                logs=logs,
-                report_html=report_path
+                report_id=report_id, status=status, logs=logs, report_html=report_path
             )
-            
-        # self._upload_report(report_id, status, logs, report_html)
-        
+
         self.log(f"[任务完成] Task #{report_id} - 状态: {status}", "success" if status == "success" else "error")
         self.current_task = None
-        
-    def _upload_report(self, report_id: int, status: str, logs: str, report_html: str):
-        pass
-        # try:
-        #     data = {
-        #         'report_id': report_id,
-        #         'status': status,
-        #         'logs': logs,
-        #         'report_path': report_html
-        #     }
-        #     resp = requests.post(f"{self.platform_url}/api/pc/reports/upload", json=data, timeout=30)
-        #     if resp.status_code == 200:
-        #         self.log(f"[上报成功] 报告 #{report_id} 已上传", "success")
-        # except Exception as e:
-        #     self.log(f"[上报异常] {e}", "error")
-            
+
     def start(self):
         self.running = True
+        self.log(f"[启动] 开始 {self.executor_type.upper()} 执行器...", "info")
+
+        self.log("\n" + "=" * 50, "info")
+        self.log("环境依赖检查结果", "info")
+        self.log("=" * 50, "info")
         
-        self.log("[启动] 开始启动执行器...", "info")
-        self.log(f"[启动] 服务器地址: {self.platform_url}", "info")
-        
-        self.log("[启动] 开始检查环境...", "info")
         prereq_result = self.run_prereq_checks()
-        self.log(f"[启动] 环境检查完成，结果: {prereq_result}", "info")
-        
-        self.log("=" * 50, "info")
-        self.log("PC 桌面自动化执行器 v" + VERSION, "info")
-        self.log("=" * 50, "info")
-        
+
         for name, check in prereq_result['checks'].items():
             status = '✅' if check['passed'] else '❌'
-            self.log(f"  {status} {name}: {check.get('version', check.get('message', ''))}", "info")
-        
-        self.log("[启动] 开始注册到服务器...", "info")
+            msg = check.get('message', f"版本: {check.get('version', 'N/A')}")
+            self.log(f"  {status} {name}: {msg}", "info")
+
+        if not prereq_result['all_passed']:
+            self.log("\n[启动] 检测到依赖缺失，尝试自动安装...", "warning")
+            from prereq_check import run_auto_install
+            
+            install_types = []
+            if self.executor_type == "pc":
+                install_types.append("pc")
+            if hasattr(self, 'supported_types') and "android" in self.supported_types:
+                install_types.append("android")
+            
+            all_install_success = True
+            for install_type in install_types:
+                if not run_auto_install(prereq_result['checks'], install_type):
+                    all_install_success = False
+            
+            if all_install_success:
+                self.log("[启动] 自动安装完成，重新检查环境...", "info")
+                prereq_result = self.run_prereq_checks()
+                self.log("\n" + "=" * 50, "info")
+                self.log("重新检查结果", "info")
+                self.log("=" * 50, "info")
+                for name, check in prereq_result['checks'].items():
+                    status = '✅' if check['passed'] else '❌'
+                    msg = check.get('message', f"版本: {check.get('version', 'N/A')}")
+                    self.log(f"  {status} {name}: {msg}", "info")
+            else:
+                self.log("[启动] 自动安装失败，请手动安装缺失依赖", "error")
+
+        self.log("\n" + "=" * 50, "info")
+        self.log(f"{self.executor_type.upper()} 自动化执行器 v" + VERSION, "info")
+        self.log("=" * 50, "info")
+
         if not self.register_to_server():
             self.log("[错误] 无法连接到服务器", "error")
             self.running = False
             return False
-            
+
         self.log("✅ 注册成功! UUID: " + self.uuid, "success")
         self.connected = True
         self.on_connect()
-        
+
         self.http_client = HttpClient(
             server_url=self.platform_url,
             executor_uuid=self.uuid,
             on_task_received=self.on_task_received,
             on_disconnect=self.on_disconnect
         )
-        
         threading.Thread(target=self._run_http, daemon=True).start()
-        
         self.log("=" * 50, "info")
         return True
-    
+
     def _run_http(self):
         try:
-            self.log("[HTTP] 开始连接服务器...", "info")
             self.http_client.start()
-            self.log("[HTTP] 连接已启动", "success")
             self.connected = True
             self.on_connect()
-            self.log("[HTTP] 初始化完成", "success")
         except Exception as e:
             self.log(f"[HTTP错误] {e}", "error")
             self.running = False
@@ -254,22 +229,16 @@ class PCExecutor:
         self._report_status("offline")
         self.log("[已停止] 执行器已停止", "info")
 
-    def _report_status(self, status: str):
-        """上报状态到服务器"""
+    def _report_status(self, status):
         try:
-            data = {
-                'uuid': self.uuid,
-                'status': status
-            }
             requests.post(
                 f"{self.platform_url}/api/pc/executors/status",
-                json=data,
+                json={'uuid': self.uuid, 'status': status},
                 timeout=5
             )
-            self.log(f"[状态上报] {status}", "info")
         except Exception as e:
             self.log(f"[状态上报失败] {e}", "error")
-        
+
     def update_config(self, server_url=None, script_dir=None):
         if server_url:
             self.platform_url = server_url
@@ -278,50 +247,43 @@ class PCExecutor:
             self.engine = ExecutorEngine(self.script_dir)
 
 
-class AndroidExecutor:
-    def __init__(self, server_url=None, script_dir=None):
-        self.platform_url = server_url or "http://localhost:8000"
-        self.api_base = f"{self.platform_url}/api/android"
-        self.executor_name = socket.gethostname()
-        self.executor_type = "android"
-        self.running = False
-        self._log_callback = None
-        self.script_dir = script_dir or os.path.dirname(os.path.abspath(__file__))
+class PCExecutor(BaseExecutor):
+    executor_type = "pc"
+
+    def _uuid_filename(self):
+        return '.executor_uuid'
+
+    def run_prereq_checks(self):
+        from prereq_check import check_prerequisites_for_pc, check_prerequisites_for_android
         
-    def set_log_callback(self, callback):
-        self._log_callback = callback
-        
-    def log(self, message, level="info"):
-        print(message)
-        if self._log_callback:
-            self._log_callback(message, level)
-            
-    def run_prereq_checks(self) -> dict:
+        if hasattr(self, 'supported_types') and "android" in self.supported_types:
+            all_checks = {}
+            pc_checks = check_prerequisites_for_pc()
+            all_checks.update(pc_checks['checks'])
+            android_checks = check_prerequisites_for_android()
+            all_checks.update(android_checks['checks'])
+            return {
+                'all_passed': all(passed['passed'] for passed in all_checks.values()),
+                'checks': all_checks,
+                'summary': f"{sum(1 for k in all_checks if all_checks[k]['passed'])}/{len(all_checks)} 检查通过"
+            }
+        return check_prerequisites_for_pc()
+
+    def _get_install_type(self):
+        return "pc"
+
+
+class AndroidExecutor(BaseExecutor):
+    executor_type = "android"
+
+    def _uuid_filename(self):
+        return '.executor_uuid_android'
+
+    def run_prereq_checks(self):
         return check_prerequisites_for_android()
-        
-    def start(self):
-        import subprocess
-        self.running = True
-        
-        prereq_result = self.run_prereq_checks()
-        self.log("=" * 50, "info")
-        self.log("Android 自动化执行器 v" + VERSION, "info")
-        self.log("=" * 50, "info")
-        
-        for name, check in prereq_result['checks'].items():
-            status = '✅' if check['passed'] else '❌'
-            self.log(f"  {status} {name}: {check.get('version', check.get('message', ''))}", "info")
-            
-        self.log(f"🚀 Android Executor started. Target: {self.platform_url}", "info")
-        self.log("=" * 50, "info")
-        
-    def stop(self):
-        self.running = False
-        
-    def update_config(self, server_url=None):
-        if server_url:
-            self.platform_url = server_url
-            self.api_base = f"{self.platform_url}/api/android"
+
+    def _get_install_type(self):
+        return "android"
 
 
 def show_config_dialog():
@@ -646,7 +608,7 @@ def parse_arguments():
 
 
 def main():
-    args = parse_args()
+    args = parse_arguments()
     
     executor_type = args.type
     server_url = args.server
@@ -664,38 +626,6 @@ def main():
     # 解析选择的执行模式（支持逗号分隔的多个模式）
     selected_types = [t.strip() for t in executor_type.split(",")]
     
-    # 根据选择的模式进行环境检查
-    from prereq_check import check_prerequisites_for_pc, check_prerequisites_for_android
-    
-    all_checks = {}
-    if "pc" in selected_types:
-        pc_checks = check_prerequisites_for_pc()
-        all_checks.update(pc_checks['checks'])
-    if "android" in selected_types:
-        android_checks = check_prerequisites_for_android()
-        all_checks.update(android_checks['checks'])
-    
-    # 打印环境检查结果
-    print("\n" + "="*50)
-    print("环境依赖检查结果")
-    print("="*50)
-    all_passed = True
-    for name, check in all_checks.items():
-        status = '✅' if check['passed'] else '❌'
-        msg = check.get('message', f"版本: {check.get('version', 'N/A')}")
-        print(f"  {status} {name}: {msg}")
-        if not check['passed']:
-            all_passed = False
-    
-    if not all_passed:
-        print("\n⚠️  警告: 部分依赖未满足，请安装后再启动")
-        if not args.no_gui:
-            import tkinter as tk
-            from tkinter import messagebox
-            root = tk.Tk()
-            root.withdraw()
-            messagebox.showwarning("依赖检查", "部分依赖未满足，请检查日志并安装后再启动")
-    
     # 创建执行器（如果选择了多个模式，默认使用 PC 模式）
     if "pc" in selected_types:
         executor = PCExecutor(server_url=server_url, script_dir=script_dir)
@@ -706,6 +636,33 @@ def main():
     executor.supported_types = selected_types
     
     if args.no_gui:
+        # 命令行模式：启动前先检查环境
+        from prereq_check import check_prerequisites_for_pc, check_prerequisites_for_android
+        
+        all_checks = {}
+        if "pc" in selected_types:
+            pc_checks = check_prerequisites_for_pc()
+            all_checks.update(pc_checks['checks'])
+        if "android" in selected_types:
+            android_checks = check_prerequisites_for_android()
+            all_checks.update(android_checks['checks'])
+        
+        # 打印环境检查结果
+        print("\n" + "="*50)
+        print("环境依赖检查结果")
+        print("="*50)
+        all_passed = True
+        for name, check in all_checks.items():
+            status = '✅' if check['passed'] else '❌'
+            msg = check.get('message', f"版本: {check.get('version', 'N/A')}")
+            print(f"  {status} {name}: {msg}")
+            if not check['passed']:
+                all_passed = False
+        
+        if not all_passed:
+            print("\n⚠️  警告: 部分依赖未满足，请安装后再启动")
+            return
+        
         executor.start()
     else:
         show_gui_manager(executor)

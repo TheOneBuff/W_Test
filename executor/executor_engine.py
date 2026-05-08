@@ -1,10 +1,5 @@
 import os
-import sys
-import json
 import subprocess
-import tempfile
-import shutil
-from datetime import datetime
 
 class ExecutorEngine:
     def __init__(self, working_dir=None):
@@ -102,6 +97,7 @@ class ExecutorEngine:
                 stderr=subprocess.PIPE,
                 text=True,
                 encoding='utf-8',
+                errors='replace',
                 cwd=task_dir,
                 env=env,
                 shell=True
@@ -122,29 +118,20 @@ class ExecutorEngine:
             return -1, '', str(e)
             
     def execute_yaml(self, script_content: str, task_id: int, env_vars: dict = None) -> tuple:
-        try:
-            yaml_content = json.loads(script_content)
-        except:
-            yaml_content = [line.strip() for line in script_content.split('\n') if line.strip()]
-            
-        script_file = self.write_script_file(
-            json.dumps(yaml_content, ensure_ascii=False),
-            'json',
-            task_id
-        )
-        
-        env = self._build_env(env_vars, preserve_path=True)
-            
         task_dir = self._get_task_dir(task_id)
-        report_file = os.path.join(task_dir, f"task_{task_id}_report.html")
+        script_file = os.path.join(task_dir, f"task_{task_id}_script.yaml")
+
+        with open(script_file, 'w', encoding='utf-8') as f:
+            f.write(script_content)
+
+        env = self._build_env(env_vars, preserve_path=True)
+
         script_name = os.path.basename(script_file)
-        cmd_str = f'tsx runner.ts {script_name} {report_file}'
-        
+        cmd_str = f'midscene {script_name}'
+
         print(f"[YAML执行] 命令: {cmd_str}")
         print(f"[YAML执行] 工作目录: {task_dir}")
-        print(f"[YAML执行] 脚本文件: {script_name}")
-        print(f"[YAML执行] 报告文件: {report_file}")
-        
+
         try:
             process = subprocess.Popen(
                 cmd_str,
@@ -152,17 +139,18 @@ class ExecutorEngine:
                 stderr=subprocess.PIPE,
                 text=True,
                 encoding='utf-8',
+                errors='replace',
                 cwd=task_dir,
                 env=env,
                 shell=True
             )
-            
+
             stdout, stderr = process.communicate(timeout=600)
             return_code = process.returncode
-            
+
             print(f"[YAML执行] 完成，退出码: {return_code}")
             return return_code, stdout, stderr
-            
+
         except subprocess.TimeoutExpired:
             process.kill()
             print("[YAML执行] 超时，10分钟限制")
@@ -170,9 +158,6 @@ class ExecutorEngine:
         except Exception as e:
             print(f"[YAML执行] 异常: {e}")
             return -1, '', str(e)
-        finally:
-            if os.path.exists(script_file):
-                os.remove(script_file)
                 
     def execute(self, script_content: str, script_type: str, task_id: int, env_vars: dict = None) -> tuple:
         print(f"[Executor] 开始执行任务 #{task_id}, 类型: {script_type}")
@@ -195,7 +180,7 @@ class ExecutorEngine:
         if os.path.exists(report_dir):
             # 查找目录下的 HTML 文件
             for file_name in os.listdir(report_dir):
-                if file_name.endswith('.html') and file_name.startswith('computer-'):
+                if file_name.endswith('.html') :
                     report_file = os.path.join(report_dir, file_name)
                     print(f"[Executor] 找到报告文件: {report_file}")
                     if os.path.exists(report_file):
@@ -204,70 +189,4 @@ class ExecutorEngine:
         return ''
 
 
-def create_default_runner():
-    runner_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'runner.ts')
-    if os.path.exists(runner_path):
-        return runner_path
-    
-    runner_content = '''
-import * as fs from 'fs';
-import * as path from 'path';
 
-async function main() {
-  const args = process.argv.slice(2);
-  if (args.length < 2) {
-    console.error('Usage: tsx runner.ts <script_file> <report_file>');
-    process.exit(1);
-  }
-  
-  const scriptFile = args[0];
-  const reportFile = args[1];
-  
-  console.log(`[*] Midscene Runner starting...`);
-  console.log(`[*] Script: ${scriptFile}`);
-  console.log(`[*] Report: ${reportFile}`);
-  
-  // 读取脚本内容
-  let script: any;
-  try {
-    const content = fs.readFileSync(scriptFile, 'utf-8');
-    script = JSON.parse(content);
-  } catch (e) {
-    console.error('Failed to read script:', e);
-    process.exit(1);
-  }
-  
-  // 生成简单的 HTML 报告
-  const html = `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <title>Midscene Report</title>
-  <style>
-    body { font-family: Arial, sans-serif; padding: 20px; }
-    .header { background: #4CAF50; color: white; padding: 20px; }
-    .success { color: #4CAF50; }
-  </style>
-</head>
-<body>
-  <div class="header">
-    <h1>Midscene PC Automation Report</h1>
-    <p>Task executed successfully</p>
-  </div>
-  <pre>${JSON.stringify(script, null, 2)}</pre>
-</body>
-</html>
-  `;
-  
-  fs.writeFileSync(reportFile, html);
-  console.log('[*] Report generated:', reportFile);
-}
-
-main().catch(console.error);
-    '''
-    
-    with open(runner_path, 'w', encoding='utf-8') as f:
-        f.write(runner_content)
-        
-    return runner_path

@@ -13,3 +13,4 @@ npm run dev
 
 表test_reports 要手动改一下类型   text 改成 longtext
 
+PCExecutor.spec         console=True 启动执行器时会打印日志（cmd小黑框）
