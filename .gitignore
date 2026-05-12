@@ -1,0 +1,40 @@
+# 忽略日志目录
+logs/
+
+# 忽略 MySQL 数据目录
+mysql/
+
+# 忽略报告目录
+reports/
+
+# 忽略上传文件目录
+uploads/
+
+# 忽略向量数据库目录
+chroma_db/
+
+# 忽略 IDE 相关文件
+.idea/
+.vscode/
+
+# 忽略 Python 编译文件
+__pycache__/
+*.pyc
+
+# 忽略 Node.js 依赖
+node_modules/
+
+# 忽略前端构建文件
+dist/
+build/
+
+# 忽略环境变量文件
+.env
+.env.local
+.env.*.local
+
+# 忽略临时文件
+*.tmp
+*.temp
+.temp/
+.tmp/

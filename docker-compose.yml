@@ -16,9 +16,11 @@ services:
       timeout: 3s
       retries: 10
     volumes:
-      - /Users/whp/mysql:/var/lib/mysql  # 修改：本地目录改为 w_test_mysql
+      - ./mysql:/var/lib/mysql  # 修改：使用相对路径，确保数据持久化
     networks:
       - w_test_network  # 添加：使用自定义网络
+    restart: always
+
 
   # Redis 消息队列
   redis:
@@ -45,6 +47,7 @@ services:
       - ./uploads:/data/uploads
       - ./chroma_db:/data/chroma_db
       - ./reports:/data/reports
+      - ./logs:/data/logs
     restart: always
     depends_on:
       db:
@@ -68,11 +71,15 @@ services:
       - TZ=Asia/Shanghai
       - APP_NAME=w_test  # 添加
       - ANONYMIZED_TELEMETRY=False
+      - CHROMA_TELEMETRY_ENABLED=False
+      - PUPPETEER_ARCH=arm64
+      - PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=false
     volumes:
       - ./backend:/app
       - ./uploads:/data/uploads
       - ./chroma_db:/data/chroma_db
       - ./reports:/data/reports
+      - ./logs:/data/logs
     restart: always
     depends_on:
       db:
@@ -81,6 +88,12 @@ services:
         condition: service_started
     networks:
       - w_test_network  # 添加
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 2G
 
   # Nginx 前端
   nginx:
@@ -98,6 +111,7 @@ services:
       - backend
     networks:
       - w_test_network  # 添加
+    restart: always
 
 # 定义网络
 networks:

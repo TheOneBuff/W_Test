@@ -98,7 +98,8 @@ class TestCaseBase(BaseModel):
     project_id: Optional[int] = None
     project_name: Optional[str] = None
     script_content: str  # YAML 或 自然语言
-    script_type: str = "yaml"  # yaml / prompt
+    script_type: str = "yaml"  # yaml / prompt / typescript
+    case_type: str = "web"  # web / pc
 
 
 class TestCaseCreate(TestCaseBase):
@@ -144,6 +145,7 @@ class TestReportOut(BaseModel):
     # 新增
     test_case_id: int
     test_case_name: Optional[str] = None # 需要后端 join 填充
+    case_type: Optional[str] = None # 用例类型：web/pc
 
     class Config:
         from_attributes = True
@@ -179,6 +181,28 @@ class TaskLogOut(BaseModel):
         from_attributes = True
 
 
+class MaterialBase(BaseModel):
+    name: str
+    project_id: Optional[int] = None
+    category: str = "web"  # 素材分类: web/pc
+
+
+class MaterialCreate(MaterialBase):
+    pass
+
+
+class MaterialOut(MaterialBase):
+    id: int
+    file_path: str
+    file_type: str
+    file_size: int
+    category: str
+    create_time: datetime
+
+    class Config:
+        from_attributes = True
+
+
 # --- Periodic Task ---
 class PeriodicTaskBase(BaseModel):
     name: str
@@ -201,3 +225,268 @@ class PeriodicTaskOut(PeriodicTaskBase):
 
     class Config:
         from_attributes = True
+
+
+class NotificationConfigBase(BaseModel):
+    name: str
+    channel: str
+    is_enabled: bool = True
+    config_json: Optional[dict] = None
+    events: Optional[list] = None
+    is_default: bool = False
+
+
+class NotificationConfigCreate(NotificationConfigBase):
+    pass
+
+
+class NotificationConfigUpdate(NotificationConfigBase):
+    pass
+
+
+class NotificationConfigOut(NotificationConfigBase):
+    id: int
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class NotificationTestRequest(BaseModel):
+    config_id: int
+    test_message: Optional[str] = "这是一条测试通知"
+
+
+class NotificationTestResponse(BaseModel):
+    success: bool
+    message: str
+
+
+class SkillCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    prompt_content: str
+    skill_type: str = "general"
+    is_active: bool = True
+
+
+class SkillUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    prompt_content: Optional[str] = None
+    skill_type: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class SkillOut(BaseModel):
+    id: int
+    name: str
+    description: Optional[str] = None
+    prompt_content: str
+    skill_type: str
+    is_active: bool
+    created_by: Optional[int] = None
+    create_time: datetime
+    update_time: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ExecutorRegister(BaseModel):
+    name: str
+    uuid: str
+    executor_type: str = "pc"
+    version: Optional[str] = None
+    ip_address: Optional[str] = None
+    os_version: Optional[str] = None
+    hostname: Optional[str] = None
+    capabilities: Optional[dict] = None
+
+
+class ExecutorCreate(ExecutorRegister):
+    pass
+
+
+class ExecutorUpdate(BaseModel):
+    name: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class ExecutorOut(BaseModel):
+    id: int
+    uuid: str
+    name: str
+    executor_type: str
+    version: Optional[str] = None
+    ip_address: Optional[str] = None
+    os_version: Optional[str] = None
+    hostname: Optional[str] = None
+    status: str
+    last_heartbeat: Optional[datetime] = None
+    capabilities: Optional[dict] = None
+    is_active: bool
+    create_time: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class TestRuleCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    rule_content: str
+    rule_type: str
+    scope_type: str = "global"
+    project_id: Optional[int] = None
+    module_name: Optional[str] = None
+    priority: str = "P1"
+    is_active: bool = True
+    parent_rule_id: Optional[int] = None
+    tags: Optional[List[str]] = None
+    condition_expr: Optional[str] = None
+    example: Optional[str] = None
+
+
+class TestRuleUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    rule_content: Optional[str] = None
+    rule_type: Optional[str] = None
+    scope_type: Optional[str] = None
+    project_id: Optional[int] = None
+    module_name: Optional[str] = None
+    priority: Optional[str] = None
+    is_active: Optional[bool] = None
+    parent_rule_id: Optional[int] = None
+    tags: Optional[List[str]] = None
+    condition_expr: Optional[str] = None
+    example: Optional[str] = None
+
+
+class TestRuleOut(BaseModel):
+    id: int
+    name: str
+    description: Optional[str] = None
+    rule_content: str
+    rule_type: str
+    scope_type: str
+    project_id: Optional[int] = None
+    module_name: Optional[str] = None
+    priority: str
+    is_active: bool
+    parent_rule_id: Optional[int] = None
+    tags: Optional[Any] = None
+    condition_expr: Optional[str] = None
+    example: Optional[str] = None
+    version: int
+    created_by: Optional[int] = None
+    create_time: datetime
+    update_time: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class TestConditionCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    condition_content: str
+    condition_type: str
+    rule_id: Optional[int] = None
+    scope_type: str = "global"
+    project_id: Optional[int] = None
+    module_name: Optional[str] = None
+    tags: Optional[List[str]] = None
+    is_active: bool = True
+
+
+class TestConditionUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    condition_content: Optional[str] = None
+    condition_type: Optional[str] = None
+    rule_id: Optional[int] = None
+    scope_type: Optional[str] = None
+    project_id: Optional[int] = None
+    module_name: Optional[str] = None
+    tags: Optional[List[str]] = None
+    is_active: Optional[bool] = None
+
+
+class TestConditionOut(BaseModel):
+    id: int
+    name: str
+    description: Optional[str] = None
+    condition_content: str
+    condition_type: str
+    rule_id: Optional[int] = None
+    scope_type: str
+    project_id: Optional[int] = None
+    module_name: Optional[str] = None
+    tags: Optional[Any] = None
+    is_active: bool
+    created_by: Optional[int] = None
+    create_time: datetime
+    update_time: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class RuleSetCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    set_type: str = "custom"
+    project_id: Optional[int] = None
+    is_active: bool = True
+    is_default: bool = False
+    rule_ids: Optional[List[int]] = None
+
+
+class RuleSetUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    set_type: Optional[str] = None
+    project_id: Optional[int] = None
+    is_active: Optional[bool] = None
+    is_default: Optional[bool] = None
+    rule_ids: Optional[List[int]] = None
+
+
+class RuleSetOut(BaseModel):
+    id: int
+    name: str
+    description: Optional[str] = None
+    set_type: str
+    project_id: Optional[int] = None
+    is_active: bool
+    is_default: bool
+    created_by: Optional[int] = None
+    create_time: datetime
+    update_time: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class RuleSetDetailOut(RuleSetOut):
+    rules: List[TestRuleOut] = []
+
+
+class GenerateWithRulesRequest(BaseModel):
+    requirement: str
+    image_path: Optional[str] = None
+    skill_id: Optional[int] = None
+    rule_set_id: Optional[int] = None
+    rule_ids: Optional[List[int]] = None
+    project_id: Optional[int] = None
+    strategy: str = "hybrid"
+    top_k_rules: int = 5
+
+
+class RuleSearchResult(BaseModel):
+    rule: TestRuleOut
+    relevance_score: float
+    source: str

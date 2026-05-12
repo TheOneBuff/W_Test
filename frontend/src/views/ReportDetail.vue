@@ -6,13 +6,21 @@
           <el-icon><ArrowLeft /></el-icon> 返回
         </el-button>
         <span class="divider">/</span>
-        <span class="report-title">报告 #{{ report.id }}</span>
+        <span class="report-title">测试报告 #{{ report.id }}</span>
+
         <el-tag :type="statusTag" effect="dark" class="ml-3" size="default">
-          {{ report.status ? report.status.toUpperCase() : 'UNKNOWN' }}
+          <span v-if="report.status === 'running'">RUNNING</span>
+          <span v-else-if="report.status === 'pending'">PENDING</span>
+          <span v-else>{{ report.status ? report.status.toUpperCase() : 'UNKNOWN' }}</span>
         </el-tag>
       </div>
 
       <div class="right">
+        <div class="meta-item" v-if="report.test_case_id">
+          <span class="label">Case ID:</span>
+          <span class="val">{{ report.test_case_id }}</span>
+        </div>
+
         <div class="meta-item">
           <span class="label">开始时间:</span>
           <span class="val">{{ formatDate(report.start_time) }}</span>
@@ -21,8 +29,9 @@
           <span class="label">耗时:</span>
           <span class="val">{{ duration }}</span>
         </div>
+
         <el-button
-          v-if="report.status !== 'running'"
+          v-if="report.status !== 'running' && report.status !== 'pending'"
           type="primary"
           plain
           size="small"
@@ -36,13 +45,15 @@
     </div>
 
     <div class="content-body">
-      <div v-if="report.status !== 'success'" class="log-wrapper">
-        <div v-if="report.status === 'running'" class="running-state">
+      <div v-if="(report.status === 'running' || report.status === 'pending') || (report.status === 'failed' && !reportUrl)" class="log-wrapper">
+
+        <div v-if="report.status === 'running' || report.status === 'pending'" class="running-state">
           <div class="loading-spinner">
             <el-icon class="icon-spin" :size="24"><Loading /></el-icon>
           </div>
           <h3>AI 正在执行测试...</h3>
-          <p>MidScene 正在分析页面并规划路径</p>
+          <p v-if="report.status === 'pending'">任务排队中，等待执行器接单...</p>
+          <p v-else>MidScene 正在分析页面并规划路径</p>
         </div>
 
         <div class="console-box">
@@ -57,16 +68,55 @@
       </div>
 
       <div v-else class="iframe-wrapper">
-        <iframe :src="reportUrl" class="report-iframe" frameborder="0"></iframe>
+        <iframe v-if="reportUrl" :src="reportUrl" class="report-iframe" frameborder="0"></iframe>
+        <div v-else class="empty-state">
+          <p>报告生成成功，但文件路径丢失。</p>
+        </div>
       </div>
     </div>
+
+    <el-dialog v-model="executorVisible" title="选择执行器" width="500px" align-center>
+      <div class="executor-selector">
+        <el-empty v-if="pcExecutors.length === 0 && !executorLoading" description="暂无可用的执行器" />
+        <div v-else v-loading="executorLoading">
+          <el-select
+            v-model="selectedExecutorId"
+            placeholder="请选择执行器"
+            style="width: 100%"
+            clearable
+          >
+            <el-option
+              v-for="ex in pcExecutors"
+              :key="ex.id"
+              :label="`${ex.name} (${ex.ip_address || '无IP'})`"
+              :value="ex.id"
+            >
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-weight: 500;">{{ ex.name }}</span>
+                <span style="color: #9ca3af; font-size: 12px;">{{ ex.ip_address || '无IP' }}</span>
+                <el-tag size="small" :type="ex.status === 'online' ? 'success' : 'info'">
+                  {{ ex.status === 'online' ? '在线' : ex.status }}
+                </el-tag>
+              </div>
+            </el-option>
+          </el-select>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="executorVisible = false">取消</el-button>
+        <el-button type="primary" @click="confirmExecutorRun" :disabled="!selectedExecutorId">
+          确认下发
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted, computed, onUnmounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import axios from '@/utils/request'
+import request from '@/utils/request'
+import { dispatchTask, getExecutorList } from '@/api/pc'
 import { Loading, RefreshRight, ArrowLeft } from '@element-plus/icons-vue'
 import dayjs from 'dayjs'
 import { ElMessage } from 'element-plus'
@@ -74,33 +124,69 @@ import { ElMessage } from 'element-plus'
 const route = useRoute()
 const router = useRouter()
 const retrying = ref(false)
-const report = ref<any>({ id: 0, status: 'pending', logs: '', start_time: '', end_time: '' })
+
+const executorVisible = ref(false)
+const pcExecutors = ref<any[]>([])
+const selectedExecutorId = ref<number | null>(null)
+const executorLoading = ref(false)
+
+// 报告数据模型
+const report = ref<any>({
+  id: 0,
+  test_case_id: 0,
+  status: 'pending',
+  logs: '',
+  start_time: '',
+  end_time: '',
+  report_path: ''
+})
+
 const consoleBodyRef = ref<HTMLElement>()
 let timer: any = null
 
+// 状态颜色映射
 const statusTag = computed(() => {
-  const map: any = { pending: 'info', running: 'warning', success: 'success', failed: 'danger' }
+  const map: any = {
+    pending: 'info',
+    running: 'warning',
+    success: 'success',
+    failed: 'danger'
+  }
   return map[report.value.status] || 'info'
 })
 
-const reportUrl = computed(() => report.value.report_path ? `/reports/${report.value.report_path}` : '')
+// 计算静态资源 URL (需匹配后端 StaticFiles 挂载路径)
+const reportUrl = computed(() => {
+  if (!report.value.report_path) return ''
+  // 确保路径不重复拼接 /reports/
+  const path = report.value.report_path.startsWith('/') ? report.value.report_path.slice(1) : report.value.report_path
+  return `/reports/${path}`
+})
 
+// 计算耗时
 const duration = computed(() => {
   if (!report.value.end_time || !report.value.start_time) return '-'
   return dayjs(report.value.end_time).diff(dayjs(report.value.start_time), 'second') + 's'
 })
 
+// 轮询获取状态
 const fetchStatus = async () => {
   try {
-    const res = await axios.get(`/testcases/reports/${route.params.id}`)
-    report.value = res.data
+    // 假设后端有通用的 GET /api/reports/{id} 接口
+    const res = await request.get(`/testcases/reports/${route.params.id}`)
+    report.value = res.data // 确保 res.data 包含 TestReportOut 的所有字段
+
+    // 如果是 Pending 或 Running，继续轮询
     if (['pending', 'running'].includes(res.data.status)) {
       timer = setTimeout(fetchStatus, 2000)
     }
-  } catch (e) { console.error(e) }
+  } catch (e) {
+    console.error(e)
+    // 可以添加 404 处理
+  }
 }
 
-// 自动滚动到底部
+// 自动滚动日志到底部
 watch(() => report.value.logs, () => {
   nextTick(() => {
     if (consoleBodyRef.value) {
@@ -109,19 +195,76 @@ watch(() => report.value.logs, () => {
   })
 })
 
+// 处理重跑：重新下发任务 -> 跳转到新报告
 const handleRetry = async () => {
+  if (!report.value.test_case_id) {
+    ElMessage.error('无法获取关联用例 ID')
+    return
+  }
+
   retrying.value = true
   try {
-    const res = await axios.post(`/testcases/reports/${report.value.id}/retry`)
-    ElMessage.success('已触发重跑')
-    router.push(`/reports/${res.data.id}`)
-    report.value = res.data
+    const caseRes = await request.get(`/testcases/${report.value.test_case_id}`)
+    const caseInfo = caseRes.data
+
+    if (caseInfo.case_type === 'pc') {
+      executorVisible.value = true
+      selectedExecutorId.value = null
+      executorLoading.value = true
+      try {
+        const exRes = await getExecutorList({ status: 'online', limit: 50 })
+        pcExecutors.value = (exRes.data || []).filter((e: any) => e.is_active)
+      } catch (e) {
+        console.error(e)
+        pcExecutors.value = []
+      } finally {
+        executorLoading.value = false
+      }
+    } else {
+      const res = await request.post(`/testcases/${report.value.test_case_id}/run`)
+      const newReport = res.data
+      ElMessage.success(`重跑任务已创建 (ID: ${newReport.id})`)
+      router.push(`/report-view/${newReport.id}`)
+      report.value = newReport
+      fetchStatus()
+    }
+  } catch (e) {
+    console.error(e)
+    ElMessage.error('重跑请求失败')
+  } finally {
+    retrying.value = false
+  }
+}
+
+const confirmExecutorRun = async () => {
+  if (!selectedExecutorId.value) {
+    ElMessage.warning('请选择执行器')
+    return
+  }
+
+  executorVisible.value = false
+  try {
+    const res = await dispatchTask(report.value.test_case_id, selectedExecutorId.value)
+    const newReport = res.data
+    ElMessage.success(`重跑任务已创建 (ID: ${newReport.id})`)
+    router.push(`/report-view/${newReport.id}`)
+    report.value = newReport
     fetchStatus()
-  } catch (e) { ElMessage.error('重跑失败') }
-  finally { retrying.value = false }
+  } catch (e) {
+    console.error(e)
+    ElMessage.error('重跑请求失败')
+  }
 }
 
 const formatDate = (str: string) => str ? dayjs(str).format('MM-DD HH:mm:ss') : '-'
+
+// 监听路由变化 (解决在当前页面点重跑跳转后数据不刷新的问题)
+watch(() => route.params.id, (newId) => {
+  if (newId) {
+    if (timer) clearTimeout(timer)
+    fetchStatus()
+  }
+})
 
 onMounted(fetchStatus)
 onUnmounted(() => timer && clearTimeout(timer))
@@ -193,6 +336,7 @@ onUnmounted(() => timer && clearTimeout(timer))
 
 .iframe-wrapper { flex: 1; background: #fff; overflow: hidden; }
 .report-iframe { width: 100%; height: 100%; display: block; border: none; }
+.empty-state { display: flex; justify-content: center; align-items: center; height: 100%; color: #999; }
 
 @keyframes spin { 100% { transform: rotate(360deg); } }
 </style>

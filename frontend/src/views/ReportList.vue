@@ -36,7 +36,9 @@
               <span class="case-name" @click="$router.push(`/testcases/edit/${row.test_case_id}`)">
                 {{ row.test_case_name || `Case #${row.test_case_id}` }}
               </span>
-              <el-tag size="small" type="info" effect="plain" class="ml-2">UI</el-tag>
+              <el-tag size="small" :type="row.case_type === 'pc' ? 'warning' : 'primary'" class="ml-2">
+                {{ row.case_type === 'pc' ? 'PC' : 'WEB' }}
+              </el-tag>
             </div>
           </template>
         </el-table-column>

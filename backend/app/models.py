@@ -64,6 +64,9 @@ class TestCase(Base):
 
     project_id = Column(Integer, index=True, nullable=True)
 
+    # 区分用例类型: web / pc
+    case_type = Column(String(20), default="web")
+
     # TestCase -> Project (Many-to-One)
     project = relationship(
         "Project",
@@ -86,15 +89,18 @@ class TestCase(Base):
     )
 
 
+
 class TestReport(Base):
     __tablename__ = "test_reports"
 
     id = Column(Integer, primary_key=True, index=True)
 
     test_case_id = Column(Integer, index=True)
+    executor_id = Column(Integer, index=True, nullable=True)
+    batch_id = Column(String(50), index=True, nullable=True)
 
     status = Column(SqEnum(TaskStatus), default=TaskStatus.PENDING)
-    start_time = Column(DateTime, default=datetime.now())
+    start_time = Column(DateTime, default=datetime.now)
     end_time = Column(DateTime, nullable=True)
     report_path = Column(String(255), nullable=True)
     logs = Column(Text, nullable=True)
@@ -137,13 +143,28 @@ class LLMConfig(Base):
     created_at = Column(DateTime, default=datetime.now())
     updated_at = Column(DateTime, default=datetime.now(), onupdate=datetime.now())
 
-    # LLMConfig -> User (Many-to-One)
     owner = relationship(
         "User",
         back_populates="llm_configs",
         primaryjoin="User.id == LLMConfig.user_id",
         foreign_keys=[user_id]
     )
+
+
+class Skill(Base):
+    __tablename__ = "skills"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False)
+    description = Column(String(500), nullable=True)
+    prompt_content = Column(Text, nullable=False)
+    
+    skill_type = Column(String(50), default="general")
+    is_active = Column(Boolean, default=True)
+    
+    created_by = Column(Integer, index=True, nullable=True)
+    create_time = Column(DateTime, default=datetime.now)
+    update_time = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
 
 class Menu(Base):
@@ -255,6 +276,13 @@ class KnowledgeDocument(Base):
     chunk_count = Column(Integer, default=0)  # 切分片段数
     create_time = Column(DateTime, default=datetime.now)
 
+    # [增强] 文档业务分类
+    category = Column(String(50), nullable=True)  # rule / testcase / requirement / reference
+    rule_type = Column(String(50), nullable=True)  # boundary / equivalence / constraint / biz_rule / security
+    tags = Column(JSON, nullable=True)  # 标签
+    project_id = Column(Integer, index=True, nullable=True)  # 关联项目
+    is_rule_doc = Column(Boolean, default=False)  # 是否是一条规则文档
+
 
 class TestCaseRecord(Base):
     __tablename__ = "test_case_records"
@@ -276,3 +304,163 @@ class TestCaseRecord(Base):
 
     create_time = Column(DateTime, default=datetime.now)
     update_time = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    # [增强] 生成追溯
+    applied_rule_ids = Column(JSON, nullable=True)
+    applied_rule_set_id = Column(Integer, nullable=True)
+    applied_skill_id = Column(Integer, nullable=True)
+    rag_context_detail = Column(JSON, nullable=True)
+
+
+class Material(Base):
+    __tablename__ = "materials"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), nullable=False)  # 素材名称
+    file_path = Column(String(255), nullable=False)  # 存储路径
+    file_type = Column(String(50), nullable=False)  # 文件类型
+    file_size = Column(Integer, nullable=False)  # 文件大小（字节）
+    project_id = Column(Integer, index=True, nullable=True)  # 所属项目
+    category = Column(String(20), default="web", nullable=False)  # 素材分类: web/pc
+
+    create_time = Column(DateTime, default=datetime.now())
+
+    # Material -> Project (Many-to-One)
+    project = relationship(
+        "Project",
+        backref=backref("materials", foreign_keys=[project_id]),
+        primaryjoin="Project.id == Material.project_id",
+        foreign_keys=[project_id]
+    )
+
+
+class NotificationConfig(Base):
+    __tablename__ = "notification_configs"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    name = Column(String(100), nullable=False)
+
+    channel = Column(String(20), nullable=False)  # feishu, weixin, email
+
+    is_enabled = Column(Boolean, default=True)
+
+    config_json = Column(JSON, nullable=True)
+
+    events = Column(JSON, nullable=True)  # ["task_success", "task_failed"]
+
+    is_default = Column(Boolean, default=False)
+
+    created_at = Column(DateTime, default=datetime.now())
+    updated_at = Column(DateTime, default=datetime.now(), onupdate=datetime.now())
+
+
+EXECUTOR_OFFLINE_TIMEOUT = 60
+
+
+class Executor(Base):
+    __tablename__ = "pc_executors"
+
+    id = Column(Integer, primary_key=True, index=True)
+    uuid = Column(String(100), unique=True, nullable=False, index=True)
+    name = Column(String(100), nullable=False)
+    executor_type = Column(String(20), default="pc")
+    version = Column(String(50), nullable=True)
+
+    ip_address = Column(String(50), nullable=True)
+    os_version = Column(String(100), nullable=True)
+    hostname = Column(String(100), nullable=True)
+    capabilities = Column(JSON, nullable=True)
+
+    status = Column(String(20), default="offline")
+    last_heartbeat = Column(DateTime, nullable=True)
+
+    owner_id = Column(Integer, index=True, nullable=True)
+    is_active = Column(Boolean, default=True)
+
+    create_time = Column(DateTime, default=datetime.now)
+    update_time = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+
+class TestRule(Base):
+    __tablename__ = "test_rules"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(200), nullable=False)
+    description = Column(Text, nullable=True)
+    rule_content = Column(Text, nullable=False)
+
+    rule_type = Column(String(50), nullable=False)
+
+    scope_type = Column(String(20), default="global")
+    project_id = Column(Integer, index=True, nullable=True)
+    module_name = Column(String(100), nullable=True)
+
+    priority = Column(String(10), default="P1")
+    is_active = Column(Boolean, default=True)
+
+    parent_rule_id = Column(Integer, nullable=True)
+
+    tags = Column(JSON, nullable=True)
+
+    condition_expr = Column(Text, nullable=True)
+    example = Column(Text, nullable=True)
+
+    version = Column(Integer, default=1)
+
+    created_by = Column(Integer, nullable=True)
+    create_time = Column(DateTime, default=datetime.now)
+    update_time = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+
+class TestCondition(Base):
+    __tablename__ = "test_conditions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(200), nullable=False)
+    description = Column(Text, nullable=True)
+    condition_content = Column(Text, nullable=False)
+
+    condition_type = Column(String(50), nullable=False)
+
+    rule_id = Column(Integer, index=True, nullable=True)
+
+    scope_type = Column(String(20), default="global")
+    project_id = Column(Integer, nullable=True)
+    module_name = Column(String(100), nullable=True)
+
+    tags = Column(JSON, nullable=True)
+
+    is_active = Column(Boolean, default=True)
+    created_by = Column(Integer, nullable=True)
+    create_time = Column(DateTime, default=datetime.now)
+    update_time = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+
+class RuleSet(Base):
+    __tablename__ = "rule_sets"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(200), nullable=False)
+    description = Column(Text, nullable=True)
+
+    set_type = Column(String(50), default="custom")
+
+    project_id = Column(Integer, index=True, nullable=True)
+
+    is_active = Column(Boolean, default=True)
+    is_default = Column(Boolean, default=False)
+
+    created_by = Column(Integer, nullable=True)
+    create_time = Column(DateTime, default=datetime.now)
+    update_time = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+
+class RuleSetMapping(Base):
+    __tablename__ = "rule_set_mappings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    rule_set_id = Column(Integer, index=True, nullable=False)
+    rule_id = Column(Integer, index=True, nullable=False)
+    condition_id = Column(Integer, nullable=True)
+    sort_order = Column(Integer, default=0)

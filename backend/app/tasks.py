@@ -1,13 +1,16 @@
-import logging
 import os
 import shutil
 import subprocess
 import time
 from datetime import datetime, timedelta
+from .core.logging import app_logger as logging, setup_logging
 from celery import Celery
 from .database import SessionLocal
+from sqlalchemy.orm import Session, joinedload
 from .models import TestReport, TaskStatus, KnowledgeDocument
+from .models import TestCase, NotificationConfig
 from .rag import RagService
+from .api.notification import send_feishu_notification
 
 # 配置 Celery
 celery_app = Celery('midscene_worker', broker='redis://redis:6379/0')
@@ -16,17 +19,153 @@ celery_app = Celery('midscene_worker', broker='redis://redis:6379/0')
 REPORT_DIR = "/data/reports"
 
 
+def _check_batch_and_notify(batch_id: str):
+    """
+    检查批次是否全部完成，完成则发送飞书通知
+    """
+    logging.info(f"[通知调试] _check_batch_and_notify 开始执行，batch_id={batch_id}")
+    db = SessionLocal()
+    try:
+        # 查询同批次所有报告
+        reports = db.query(TestReport).options(
+            joinedload(TestReport.test_case)
+        ).filter(TestReport.batch_id == batch_id).all()
+        logging.info(f"[通知调试] 查询到报告数量: {len(reports) if reports else 0}")
+        
+        if not reports:
+            logging.warning(f"[通知调试] 批次 {batch_id} 没有报告")
+            return
+        
+        # 检查是否全部完成
+        pending_or_running = [r for r in reports if r.status in (TaskStatus.PENDING, TaskStatus.RUNNING)]
+        if pending_or_running:
+            logging.warning(f"[通知调试] 批次 {batch_id} 还有 {len(pending_or_running)} 个任务未完成")
+            return  # 还有任务在执行，不发送
+        
+        # 获取默认的飞书通知配置
+        feishu_config = db.query(NotificationConfig).filter(
+            NotificationConfig.channel == "feishu",
+            NotificationConfig.is_enabled == True,
+            NotificationConfig.is_default == True
+        ).first()
+        logging.info(f"[通知调试] 查找飞书配置: {'找到' if feishu_config else '未找到'}")
+        
+        if not feishu_config:
+            logging.warning(f"[通知调试] 批次 {batch_id} 没有找到启用的默认飞书配置")
+            return
+        
+        webhook_url = feishu_config.config_json.get("webhook_url") if feishu_config.config_json else None
+        logging.info(f"[通知调试] webhook_url: {webhook_url}")
+        if not webhook_url:
+            logging.warning(f"[通知调试] webhook_url 为空")
+            return
+        
+        # 获取用例名
+        success_reports = [r for r in reports if r.status == TaskStatus.SUCCESS]
+        failed_reports = [r for r in reports if r.status == TaskStatus.FAILED]
+        
+        success_names = []
+        failed_names = []
+        for r in success_reports:
+            if r.test_case:
+                success_names.append(r.test_case.name)
+        for r in failed_reports:
+            if r.test_case:
+                failed_names.append(r.test_case.name)
+
+        success_count = len(success_names)
+        failed_count = len(failed_names)
+        total = len(reports)
+
+        # 构造通知内容
+        summary = f"测试执行完成：{success_count} 成功 / {failed_count} 失败"
+        details = f"总任务数: {total}"
+
+        if success_names:
+            details += f"\n✅ 成功用例 ({success_count}):\n- " + "\n- ".join(success_names[:10])
+            if len(success_names) > 10:
+                details += f"\n  ... 还有 {len(success_names) - 10} 个"
+
+        if failed_names:
+            details += f"\n❌ 失败用例 ({failed_count}):\n- " + "\n- ".join(failed_names[:10])
+            if len(failed_names) > 10:
+                details += f"\n  ... 还有 {len(failed_names) - 10} 个"
+
+        logging.info(f"[通知调试] 准备发送飞书通知 - summary: {summary}")
+        logging.info(f"[通知调试] 准备发送飞书通知 - details: {details}")
+        
+        # 发送飞书通知
+        result = send_feishu_notification(webhook_url, summary, details)
+        logging.info(f"[通知调试] send_feishu_notification 返回结果: {result}")
+        
+        if result:
+            logging.info(f"[通知调试] ✅ 飞书通知发送成功: {summary}")
+        else:
+            logging.error(f"[通知调试] ❌ 飞书通知发送失败: {summary}")
+
+    except Exception as e:
+        logging.error(f"[通知调试] 发送通知失败: {e}", exc_info=True)
+    finally:
+        db.close()
+
+
+@celery_app.task
+def notify_batch_result(batch_id: str):
+    """
+    批量任务完成后，发送飞书通知
+    """
+    setup_logging(force=True)
+    logging.info(f"[通知调试] 开始处理批次通知，batch_id={batch_id}")
+    db = SessionLocal()
+    try:
+        # 查询该批次下的所有报告，预加载 test_case
+        reports = db.query(TestReport).options(
+            joinedload(TestReport.test_case)
+        ).filter(TestReport.batch_id == batch_id).all()
+        logging.info(f"[通知调试] 查询到报告数量: {len(reports) if reports else 0}")
+        
+        if not reports:
+            logging.warning(f"[通知调试] 批次 {batch_id} 没有找到任何报告")
+            return
+
+        total = len(reports)
+        success_reports = [r for r in reports if r.status == TaskStatus.SUCCESS]
+        failed_reports = [r for r in reports if r.status == TaskStatus.FAILED]
+        pending_reports = [r for r in reports if r.status == TaskStatus.PENDING]
+        running_reports = [r for r in reports if r.status == TaskStatus.RUNNING]
+        running = len(pending_reports) + len(running_reports)
+
+        logging.info(f"[通知调试] 批次状态统计 - 总数: {total}, 成功: {len(success_reports)}, 失败: {len(failed_reports)}, 待处理: {len(pending_reports)}, 运行中: {len(running_reports)}")
+
+        # 如果还有任务在执行中，等待后重新调度自己
+        if running > 0:
+            logging.info(f"[通知调试] 批次 {batch_id} 仍有 {running} 个任务在执行，60秒后重新检查")
+            notify_batch_result.apply_async(args=[batch_id], countdown=60)
+            return
+
+        logging.info(f"[通知调试] 批次 {batch_id} 所有任务已完成，开始发送通知")
+        # 检查批次完成并发送通知
+        _check_batch_and_notify(batch_id)
+
+    except Exception as e:
+        logging.error(f"[通知调试] notify_batch_result 执行异常: {e}", exc_info=True)
+    finally:
+        db.close()
+
+
 @celery_app.task
 def run_midscene_task(report_id: int, llm_config: dict):
     """
     执行 Midscene 任务 (增强版实时日志)
     """
-    logging.info(f"🚀 [Task Started] Report ID: {report_id}")
+    # 确保工作进程使用正确的日志配置（强制重新配置）
+    setup_logging(force=True)
+    logging.info(f"🚀 [任务开始] 报告编号: {report_id}")
     db = SessionLocal()
     report = db.query(TestReport).filter(TestReport.id == report_id).first()
 
     if not report:
-        logging.error(f"Report {report_id} not found.")
+        logging.error(f"报告 {report_id} 没有找到")
         db.close()
         return
 
@@ -57,6 +196,7 @@ def run_midscene_task(report_id: int, llm_config: dict):
                 try:
                     shutil.copytree(last_cache_dir, target_cache_dir, dirs_exist_ok=True)
                     init_log = f"系统缓存已从run_{last_success_report.id}恢复\n"
+                    logging.info(init_log)
                     report.logs += init_log
                 except Exception as e:
                     logging.warning(f"缓存恢复失败: {e}")
@@ -89,14 +229,15 @@ def run_midscene_task(report_id: int, llm_config: dict):
         env["PYTHONUNBUFFERED"] = "1"
         env["FORCE_COLOR"] = "1"
         env["DEBUG"] = "pw:api"
-
+        env["MIDSCENE_MODEL_REASONING_ENABLED"] = "false"
+        
         # --- 构造命令 ---
         if is_ts:
             cmd = ["tsx", script_path]
         else:
             cmd = ["midscene", script_path]
 
-        logging.info(f"Executing: {' '.join(cmd)}")
+        logging.info(f"正在执行: {' '.join(cmd)}")
 
         # --- 核心：执行并实时读取 ---
         process = subprocess.Popen(
@@ -130,34 +271,58 @@ def run_midscene_task(report_id: int, llm_config: dict):
         report.logs = current_logs
         report.end_time = datetime.now()
 
+        # 查找生成的 HTML 报告
+        found_html = None
+        for root, dirs, files in os.walk(work_dir):
+            for file in files:
+                if file.endswith(".html"):
+                    abs_path = os.path.join(root, file)
+                    # 计算相对路径，供前端访问
+                    found_html = os.path.relpath(abs_path, REPORT_DIR)
+                    break
+            if found_html: break
+
         # --- 结果判定 ---
         if process.returncode == 0:
             report.status = TaskStatus.SUCCESS
-            logging.info("Task finished successfully.")
-            # 查找生成的 HTML 报告
-            found_html = None
-            for root, dirs, files in os.walk(work_dir):
-                for file in files:
-                    if file.endswith(".html"):
-                        abs_path = os.path.join(root, file)
-                        # 计算相对路径，供前端访问
-                        found_html = os.path.relpath(abs_path, REPORT_DIR)
-                        break
-                if found_html: break
+            logging.info("任务执行成功完成。")
 
             if found_html:
                 report.report_path = found_html
             else:
-                report.logs += "\n[System] Warning: No HTML report generated."
+                report.logs += "\n[系统] 警告：未生成 HTML 报告"
         else:
             report.status = TaskStatus.FAILED
-            report.logs += f"\n[System] Process exited with code {process.returncode}"
-            logging.error(f"Task failed with code {process.returncode}")
+            report.logs += f"\n[系统] 进程已退出，退出码 {process.returncode}"
+            logging.error(f"任务执行失败，错误码 {process.returncode}")
+            logging.error(f"报告目录 {found_html}")
+            # 即使失败也设置 report_path
+            if found_html:
+                report.report_path = found_html
+            else:
+                report.logs += "\n[系统] 警告：未生成 HTML 报告"
+
 
     except Exception as e:
-        logging.exception("Exception during task execution")
+        logging.exception("任务执行过程中出现异常")
         report.status = TaskStatus.FAILED
-        report.logs = (report.logs or "") + f"\n[System Error] {str(e)}"
+        report.logs = (report.logs or "") + f"\n[系统错误] {str(e)}"
+        
+        # 即使异常也尝试查找 HTML 报告
+        found_html = None
+        for root, dirs, files in os.walk(work_dir):
+            for file in files:
+                if file.endswith(".html"):
+                    abs_path = os.path.join(root, file)
+                    # 计算相对路径，供前端访问
+                    found_html = os.path.relpath(abs_path, REPORT_DIR)
+                    break
+            if found_html: break
+        
+        if found_html:
+            report.report_path = found_html
+        else:
+            report.logs += "\n[系统] 警告：未生成 HTML 报告"
     finally:
         db.commit()
         db.close()
@@ -168,6 +333,8 @@ def process_knowledge_file(doc_id: int, llm_config: dict):
     """
     后台任务：处理知识库文件上传与向量化
     """
+    # 确保工作进程使用正确的日志配置
+    setup_logging()
     db = SessionLocal()
     try:
         doc = db.query(KnowledgeDocument).filter(KnowledgeDocument.id == doc_id).first()
@@ -183,7 +350,7 @@ def process_knowledge_file(doc_id: int, llm_config: dict):
         base_url = llm_config.get("base_url")
         model_name = llm_config.get("model_name")
 
-        logging.info(f"Task Start: Processing doc {doc_id} with model {model_name}")
+        logging.info(f"任务开始：处理文档 {doc_id}，使用模型 {model_name}")
 
         # 2. 初始化 RAG 服务
         rag = RagService(
@@ -210,7 +377,7 @@ def process_knowledge_file(doc_id: int, llm_config: dict):
     except Exception as e:
         # [核心修复] 回滚事务，确保后续的状态更新能成功写入
         db.rollback()
-        logging.error(f"Task Failed: {str(e)}")
+        logging.error(f"任务失败：{str(e)}")
 
         # 重新获取对象（rollback 后 session 可能会清理掉之前的对象状态）
         doc = db.query(KnowledgeDocument).filter(KnowledgeDocument.id == doc_id).first()

@@ -69,7 +69,7 @@ class SimpleOpenAIEmbeddings(Embeddings):
             return [item['embedding'] for item in sorted_data]
 
         except Exception as e:
-            logging.error(f"SimpleOpenAIEmbeddings Error: {str(e)}")
+            logging.error(f"SimpleOpenAIEmbeddings 错误: {str(e)}")
             raise e
 
     def embed_query(self, text: str) -> List[float]:
@@ -89,6 +89,7 @@ class RagService:
         self.base_url = base_url or "http://host.docker.internal:11434/v1"
 
         logging.info(f"🔌 正在初始化 Embedding 模型: {self.model_name}")
+        print(f"🔌 正在初始化 Embedding 模型: {self.model_name}")
 
         # 判断是否为 Ollama 环境
         is_ollama = "11434" in self.base_url or self.api_key == "ollama" or "localhost" in self.base_url
@@ -171,7 +172,7 @@ class RagService:
                     logging.info(f"👀 [Debug] 库中数据路径示例: {sample}")
 
         except Exception as e:
-            logging.error(f"❌ [Delete] 删除逻辑出错: {e}", exc_info=True)
+            logging.error(f"❌ [删除] 删除逻辑出错: {e}", exc_info=True)
 
     def process_document(self, file_path: str):
         """解析文件并存入向量库"""
@@ -245,7 +246,7 @@ class RagService:
                     self.vector_db.add_documents(batch)
                     logging.info(f"   ... 已处理批次 {i} 到 {i + len(batch)}")
                 except Exception as e:
-                    logging.error(f"❌ 批次插入失败 (Index {i}): {e}")
+                    logging.error(f"❌ 批次插入失败 (索引 {i}): {e}")
                     raise e
 
         except Exception as e:
@@ -334,4 +335,9 @@ class RagService:
         return documents
 
     def search(self, query: str, k=4):
+        return self.vector_db.similarity_search(query, k=k)
+
+    def search_with_filter(self, query: str, k=5, filter_dict: dict = None):
+        if filter_dict:
+            return self.vector_db.similarity_search(query, k=k, filter=filter_dict)
         return self.vector_db.similarity_search(query, k=k)

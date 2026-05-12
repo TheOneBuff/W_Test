@@ -26,6 +26,13 @@
               <el-input v-model="form.name" placeholder="例如：GitHub Search" size="large" />
             </el-form-item>
 
+            <el-form-item label="用例类型">
+              <el-radio-group v-model="form.case_type" class="w-100 case-type-radio">
+                <el-radio-button label="web">WEB 自动化</el-radio-button>
+                <el-radio-button label="pc">PC 桌面自动化</el-radio-button>
+              </el-radio-group>
+            </el-form-item>
+
             <el-form-item label="所属项目">
               <el-select v-model="form.project_id" placeholder="选择项目" clearable class="w-100">
                 <el-option v-for="p in projectList" :key="p.id" :label="p.name" :value="p.id" />
@@ -77,13 +84,36 @@
           <span class="editor-tip">按 Ctrl+S 保存</span>
         </div>
         <div class="monaco-container">
-          <vue-monaco-editor
-            v-model:value="form.script_content"
-            :language="editorLanguage"
-            theme="vs-dark"
-            :options="editorOptions"
-            @mount="handleEditorMount"
-            class="monaco-editor"
+          <div v-if="editorReady && !useFallbackEditor" ref="editorContainer" class="monaco-editor"></div>
+          <textarea 
+            v-else-if="editorReady && useFallbackEditor"
+            v-model="form.script_content"
+            class="fallback-editor"
+            :class="{ 'script-typescript': form.script_type === 'typescript', 'script-yaml': form.script_type === 'yaml' }"
+          ></textarea>
+          <div v-else class="editor-loading">
+            <el-icon class="is-loading"><Loading /></el-icon>
+            <span>加载编辑器中...</span>
+          </div>
+        </div>
+        
+        <!-- YAML 校验状态显示 -->
+        <div v-if="form.script_type === 'yaml'" class="validation-status">
+          <el-alert
+            v-if="yamlValidationError"
+            type="error"
+            :title="'YAML 格式错误'"
+            :closable="false"
+            show-icon
+          >
+            {{ yamlValidationError }}
+          </el-alert>
+          <el-alert
+            v-else-if="yamlValidationSuccess"
+            type="success"
+            title="YAML 格式正确"
+            :closable="false"
+            show-icon
           />
         </div>
       </div>
@@ -141,12 +171,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, computed, shallowRef, nextTick } from 'vue'
+import { ref, reactive, onMounted, computed, shallowRef, nextTick, onBeforeUnmount, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import axios from '@/utils/request'
 import { ElMessage } from 'element-plus'
-import { VueMonacoEditor } from '@guolao/vue-monaco-editor'
 import { ArrowLeft, VideoPlay, Check, Tools, Document, Loading, Select, CloseBold } from '@element-plus/icons-vue'
+import * as yaml from 'js-yaml'
+
+// 尝试动态加载 Monaco 编辑器
+let monaco: any = null
+let editor: any = null
 
 const route = useRoute()
 const router = useRouter()
@@ -154,14 +188,16 @@ const isEdit = computed(() => route.params.id !== undefined)
 
 const saving = ref(false)
 const running = ref(false)
-const editorRef = shallowRef()
+const editorReady = ref(false)
+const useFallbackEditor = ref(false)
+const editorContainer = ref<HTMLElement | null>(null)
 
 const projectList = ref<any[]>([])
 const envList = ref<any[]>([])
 
 const form = reactive({
   name: '', description: '', project_id: null as number | null,
-  script_type: 'typescript', script_content: ''
+  script_type: 'typescript', script_content: '', case_type: 'web'
 })
 
 const debugDrawerVisible = ref(false)
@@ -172,11 +208,9 @@ const debugStatus = ref('')
 let debugTimer: any = null
 const consoleBoxRef = ref<HTMLElement>()
 
-const editorOptions = {
-  automaticLayout: true, minimap: { enabled: false }, fontSize: 13,
-  scrollBeyondLastLine: false, tabSize: 2, wordWrap: 'on',
-  fontFamily: "'JetBrains Mono', Consolas, 'Courier New', monospace"
-}
+// YAML 校验相关
+const yamlValidationError = ref('')
+const yamlValidationSuccess = ref(false)
 
 const editorLanguage = computed(() => {
   if (form.script_type === 'typescript') return 'typescript'
@@ -197,7 +231,40 @@ const TEMPLATES: any = {
   prompt: `打开百度首页\n在搜索框输入 Midscene\n点击搜索按钮`
 }
 
-const handleEditorMount = (editor: any) => { editorRef.value = editor }
+const initEditor = async () => {
+  if (!editorContainer.value) return
+  
+  try {
+    // 尝试动态加载 Monaco 编辑器
+    const monacoModule = await import('monaco-editor')
+    monaco = monacoModule.default || monacoModule
+    
+    // 初始化编辑器
+    editor = monaco.editor.create(editorContainer.value, {
+      value: form.script_content,
+      language: editorLanguage.value,
+      automaticLayout: true,
+      minimap: { enabled: false },
+      fontSize: 13,
+      scrollBeyondLastLine: false,
+      tabSize: 2,
+      wordWrap: 'on',
+      fontFamily: "'JetBrains Mono', Consolas, 'Courier New', monospace",
+      theme: 'vs-dark'
+    })
+    
+    // 监听内容变化
+    editor.onDidChangeModelContent(() => {
+      if (editor) {
+        form.script_content = editor.getValue()
+      }
+    })
+  } catch (error) {
+    console.error('Monaco editor initialization error:', error)
+    ElMessage.warning('Monaco 编辑器加载失败，使用备用编辑器')
+    useFallbackEditor.value = true
+  }
+}
 
 onMounted(async () => {
   try {
@@ -210,19 +277,82 @@ onMounted(async () => {
     } else {
       form.script_content = TEMPLATES.typescript
     }
-  } catch (e) { console.error(e) }
+    
+    // 确保DOM渲染完成后再初始化编辑器
+    nextTick(() => {
+      editorReady.value = true
+      // 延迟一下确保容器已经渲染完成
+      setTimeout(initEditor, 100)
+    })
+  } catch (e) {
+    console.error('初始化错误:', e)
+    // 即使出错也显示编辑器
+    nextTick(() => {
+      editorReady.value = true
+      useFallbackEditor.value = true
+    })
+  }
 })
+
+onBeforeUnmount(() => {
+  // 清理编辑器实例
+  if (editor) {
+    editor.dispose()
+  }
+})
+
+const validateYaml = (content: string) => {
+  if (form.script_type !== 'yaml') {
+    yamlValidationError.value = ''
+    yamlValidationSuccess.value = false
+    return
+  }
+  
+  try {
+    yaml.load(content)
+    yamlValidationError.value = ''
+    yamlValidationSuccess.value = true
+  } catch (error) {
+    yamlValidationError.value = (error as Error).message
+    yamlValidationSuccess.value = false
+  }
+}
 
 const handleTypeChange = (val: string) => {
   const current = form.script_content.trim()
   const isDefault = Object.values(TEMPLATES).some((t: any) => t.trim() === current)
   if (!current || isDefault) form.script_content = TEMPLATES[val]
+  
+  // 更新编辑器语言
+  if (editor && !useFallbackEditor.value) {
+    monaco.editor.setModelLanguage(editor.getModel()!, editorLanguage.value)
+  }
+  
+  // 验证 YAML
+  validateYaml(form.script_content)
 }
+
+// 监听脚本内容变化，进行 YAML 验证
+watch(
+  () => form.script_content,
+  (newContent) => {
+    validateYaml(newContent)
+  }
+)
 
 const handleBack = () => router.push('/testcases')
 
 const handleSave = async () => {
   if (!form.name) return ElMessage.warning('请输入用例名称')
+  
+  // YAML 格式校验
+  if (form.script_type === 'yaml') {
+    validateYaml(form.script_content)
+    if (yamlValidationError.value) {
+      return ElMessage.error(`YAML 格式错误: ${yamlValidationError.value}`)
+    }
+  }
+  
   saving.value = true
   try {
     if (isEdit.value) await axios.put(`/testcases/${route.params.id}`, form)
@@ -312,6 +442,8 @@ const openReport = () => window.open(router.resolve(`/report-view/${debugReportI
 .mt-4 { margin-top: 16px; }
 .type-radio :deep(.el-radio-button__inner) { width: 100%; padding: 8px 0; }
 .type-radio :deep(.el-radio-button) { flex: 1; display: flex; }
+.case-type-radio :deep(.el-radio-button__inner) { padding: 8px 0; }
+.case-type-radio :deep(.el-radio-button) { flex: 1; display: flex; }
 .tips-wrapper { margin-top: 12px; }
 .action-footer { margin-top: 30px; }
 
@@ -324,6 +456,46 @@ const openReport = () => window.open(router.resolve(`/report-view/${debugReportI
 .file-tab { color: #e0e0e0; font-size: 13px; display: flex; align-items: center; background: #1e1e1e; height: 100%; padding: 0 12px; border-top: 2px solid #409eff; }
 .editor-tip { color: #666; font-size: 12px; }
 .monaco-container { flex: 1; overflow: hidden; }
+.monaco-editor { width: 100%; height: 100%; }
+.fallback-editor {
+  width: 100%;
+  height: 100%;
+  padding: 10px;
+  border: none;
+  outline: none;
+  font-family: 'JetBrains Mono', Consolas, 'Courier New', monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  resize: none;
+  background-color: #1e1e1e;
+  color: #d4d4d4;
+  tab-size: 2;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.fallback-editor.script-typescript {
+  /* TypeScript 特定样式 */
+}
+
+.fallback-editor.script-yaml {
+  /* YAML 特定样式 */
+}
+
+.editor-loading {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 12px;
+  color: #666;
+  background: #1e1e1e;
+}
+.editor-loading .el-icon {
+  font-size: 24px;
+}
 
 /* 调试抽屉 */
 .debug-layout { height: 100%; display: flex; flex-direction: column; padding: 0 20px 20px; }
@@ -346,4 +518,27 @@ const openReport = () => window.open(router.resolve(`/report-view/${debugReportI
 .console-body { flex: 1; overflow: auto; padding: 12px; color: #d4d4d4; font-family: monospace; font-size: 12px; }
 .console-body pre { margin: 0; white-space: pre-wrap; word-break: break-all; }
 .drawer-footer { margin-top: 16px; }
+
+/* YAML 校验状态 */
+.validation-status {
+  padding: 10px 16px;
+  background: #252526;
+  border-top: 1px solid #333;
+}
+
+.validation-status :deep(.el-alert) {
+  margin: 0;
+  font-size: 12px;
+}
+
+.validation-status :deep(.el-alert__title) {
+  font-size: 12px;
+  font-weight: normal;
+}
+
+.validation-status :deep(.el-alert__content) {
+  font-size: 11px;
+  line-height: 1.4;
+  margin-top: 4px;
+}
 </style>

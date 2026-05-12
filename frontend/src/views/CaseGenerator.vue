@@ -40,6 +40,85 @@
             class="req-input"
           />
 
+          <div class="skill-section" style="margin-top: 16px;">
+            <div class="upload-header">
+              <span>选择技能 (可选)</span>
+              <el-link type="primary" :underline="false" @click="$router.push('/skills')">管理技能</el-link>
+            </div>
+            <el-select
+              v-model="selectedSkillId"
+              placeholder="使用默认提示词"
+              clearable
+              style="width: 100%"
+            >
+              <el-option
+                v-for="skill in availableSkills"
+                :key="skill.id"
+                :label="skill.name"
+                :value="skill.id"
+              >
+                <span>{{ skill.name }}</span>
+                <el-tag size="small" type="info" style="margin-left: 8px;">
+                  {{ skill.skill_type === 'image' ? '图片' : skill.skill_type === 'text' ? '文本' : '通用' }}
+                </el-tag>
+              </el-option>
+            </el-select>
+          </div>
+
+          <div class="rule-section" style="margin-top: 16px;">
+            <div class="upload-header" style="display: flex; justify-content: space-between; align-items: center;">
+              <span>规则/规则集 (可选)</span>
+              <div>
+                <el-link type="primary" :underline="false" @click="$router.push('/rules')">管理规则</el-link>
+              </div>
+            </div>
+            <div style="display: flex; gap: 8px; margin-top: 8px;">
+              <el-select
+                v-model="selectedRuleSetId"
+                placeholder="选择规则集"
+                clearable
+                style="flex: 1"
+                @change="onRuleSetChange"
+              >
+                <el-option
+                  v-for="set in availableRuleSets"
+                  :key="set.id"
+                  :label="set.name"
+                  :value="set.id"
+                >
+                  <span>{{ set.name }}</span>
+                  <el-tag v-if="set.is_default" size="small" type="success" style="margin-left: 8px;">默认</el-tag>
+                </el-option>
+              </el-select>
+              <el-select
+                v-model="selectedRuleIds"
+                placeholder="手动选择规则"
+                multiple
+                collapse-tags
+                collapse-tags-tooltip
+                clearable
+                style="flex: 1.5"
+                :disabled="!!selectedRuleSetId"
+              >
+                <el-option
+                  v-for="rule in availableRules"
+                  :key="rule.id"
+                  :label="rule.name"
+                  :value="rule.id"
+                >
+                  <span>{{ rule.name }}</span>
+                  <el-tag :type="ruleTypeTag(rule.rule_type)" size="small" style="margin-left: 6px;">
+                    {{ ruleTypeLabel(rule.rule_type) }}
+                  </el-tag>
+                </el-option>
+              </el-select>
+            </div>
+            <div v-if="selectedRuleSetId || selectedRuleIds.length" class="rule-hint">
+              <el-icon><InfoFilled /></el-icon>
+              <span>已选择 {{ selectedRuleSetId ? '1个规则集' : selectedRuleIds.length + '条规则' }}，生成时将自动匹配业务规则和约束条件</span>
+            </div>
+          </div>
+
           <div class="upload-section">
             <div class="upload-header">
               <span>参考图片 (UI/原型图)</span>
@@ -180,11 +259,14 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from '@/utils/request'
 import {
-  Picture, Plus, MagicStick, Refresh, Warning,
+  Picture, Plus, MagicStick, Refresh, Warning, InfoFilled,
   WarnTriangleFilled, CircleCloseFilled, CircleCheckFilled
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import dayjs from 'dayjs'
+import * as skillApi from '../api/skills'
+import * as ruleSetsApi from '../api/rule_sets'
+import * as rulesApi from '../api/rules'
 
 const router = useRouter()
 
@@ -194,6 +276,14 @@ const submitting = ref(false)
 const loadingRecords = ref(false)
 const records = ref<any[]>([])
 const fileList = ref<any[]>([])
+const availableSkills = ref<any[]>([])
+const selectedSkillId = ref<number | null>(null)
+
+// 规则选择
+const selectedRuleSetId = ref<number | null>(null)
+const selectedRuleIds = ref<number[]>([])
+const availableRuleSets = ref<any[]>([])
+const availableRules = ref<any[]>([])
 
 // 模型状态
 const currentGenModel = ref<any>(null) // 生成模型
@@ -259,6 +349,17 @@ const fetchActiveModel = async () => {
 const handleSubmit = async () => {
   if (!currentGenModel.value) return ElMessage.error('服务不可用')
   if (!requirement.value.trim()) return ElMessage.warning('请输入需求描述')
+  if (!selectedSkillId.value) return ElMessage.warning('请选择一个技能（提示词）')
+
+  // 校验：如果上传了图片，只能选择图片或通用类型的技能
+  const hasImage = isMultimodal.value && (fileList.value.length > 0 || reusedImagePath.value)
+  if (hasImage && selectedSkillId.value) {
+    const selectedSkill = availableSkills.value.find(s => s.id === selectedSkillId.value)
+    if (selectedSkill && selectedSkill.skill_type === 'text') {
+      ElMessage.error('上传了图片时，不能选择"文本"类型的技能，请选择"图片"或"通用"类型的技能')
+      return
+    }
+  }
 
   submitting.value = true
   const formData = new FormData()
@@ -273,6 +374,18 @@ const handleSubmit = async () => {
     }
   }
 
+  // 技能 ID：如果选择了技能，添加到表单中
+  if (selectedSkillId.value) {
+    formData.append('skill_id', String(selectedSkillId.value))
+  }
+
+  // 规则/规则集
+  if (selectedRuleSetId.value) {
+    formData.append('rule_set_id', String(selectedRuleSetId.value))
+  } else if (selectedRuleIds.value.length > 0) {
+    formData.append('rule_ids', selectedRuleIds.value.join(','))
+  }
+
   try {
     const res = await axios.post('/knowledge/generate', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
@@ -284,6 +397,7 @@ const handleSubmit = async () => {
       requirement.value = ''
       fileList.value = []
       reusedImagePath.value = ''
+      selectedSkillId.value = null
       await fetchRecords()
     } else {
       ElMessage.error(res.data.msg || '提交失败')
@@ -293,6 +407,59 @@ const handleSubmit = async () => {
   } finally {
     submitting.value = false
   }
+}
+
+// 加载所有可用技能
+const loadAvailableSkills = async () => {
+  try {
+    const res = await skillApi.getSkills({ is_active: true })
+    availableSkills.value = res.data || []
+  } catch (error) {
+    console.error('加载技能失败:', error)
+    availableSkills.value = []
+  }
+}
+
+const loadAvailableRuleSets = async () => {
+  try {
+    const res = await ruleSetsApi.getRuleSets({ is_active: true })
+    availableRuleSets.value = res.data || []
+  } catch (error) {
+    console.error('加载规则集失败:', error)
+    availableRuleSets.value = []
+  }
+}
+
+const loadAvailableRules = async () => {
+  try {
+    const res = await rulesApi.getRules({ is_active: true, limit: 200 })
+    availableRules.value = res.data || []
+  } catch (error) {
+    console.error('加载规则失败:', error)
+    availableRules.value = []
+  }
+}
+
+const onRuleSetChange = () => {
+  if (selectedRuleSetId.value) {
+    selectedRuleIds.value = []
+  }
+}
+
+const ruleTypeTag = (type: string) => {
+  const map: Record<string, string> = {
+    boundary: 'danger', equivalence: 'warning', constraint: 'primary',
+    biz_rule: 'success', data_rule: 'info', security: 'danger', compatibility: ''
+  }
+  return map[type] || 'info'
+}
+
+const ruleTypeLabel = (type: string) => {
+  const map: Record<string, string> = {
+    boundary: '边界值', equivalence: '等价类', constraint: '约束校验',
+    biz_rule: '业务规则', data_rule: '数据规则', security: '安全规则', compatibility: '兼容性',
+  }
+  return map[type] || type
 }
 
 // 3. 历史记录复用
@@ -312,6 +479,7 @@ const handleReuse = (row: any) => {
     reusedImagePath.value = ''
     fileList.value = []
   }
+  
   ElMessage.success('内容已回填')
 }
 
@@ -347,6 +515,9 @@ const formatDate = (str: string) => str ? dayjs(str).format('MM-DD HH:mm') : '-'
 onMounted(() => {
   fetchActiveModel()
   fetchRecords()
+  loadAvailableSkills()
+  loadAvailableRuleSets()
+  loadAvailableRules()
 })
 </script>
 
@@ -429,6 +600,17 @@ onMounted(() => {
 
 .generate-btn { width: 100%; height: 40px; font-size: 15px; letter-spacing: 1px; }
 .hide-upload-btn :deep(.el-upload--picture-card) { display: none; }
+.rule-hint {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #409eff;
+  background: #ecf5ff;
+  border-radius: 4px;
+  padding: 6px 10px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
 .text-truncate { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #606266; font-size: 13px; }
 .time-text { font-size: 12px; color: #909399; font-family: monospace; }
 .text-gray { color: #dcdfe6; }
