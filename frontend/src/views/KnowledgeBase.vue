@@ -3,7 +3,7 @@
     <div class="toolbar-card">
       <div class="title-section">
         <span class="title">知识库管理</span>
-        <span class="subtitle">支持 PDF, Word, Txt, Excel (历史用例导入)</span>
+        <span class="subtitle">支持 PDF、Word、TXT、Excel（需求文档 / 历史用例导入）</span>
       </div>
 
       <div class="actions">
@@ -23,7 +23,7 @@
           accept=".pdf,.docx,.txt,.xlsx,.xls,.csv"
           :disabled="uploading"
         >
-          <el-button type="primary" :icon="Upload" :loading="uploading">上传文档 / 历史用例</el-button>
+          <el-button type="primary" :icon="Upload" :loading="uploading">上传需求文档 / 历史用例</el-button>
         </el-upload>
       </div>
     </div>

@@ -149,12 +149,26 @@ async def generate_cases(
         image_file: UploadFile = File(None),
         reuse_image_path: str = Form(None),
         skill_id: int = Form(None),
+        rule_set_id: int = Form(None),
+        rule_ids: str = Form(None),
+        project_id: int = Form(None),
+        strategy: str = Form("hybrid"),
+        top_k_rules: int = Form(5),
         db: Session = Depends(get_db),
         current_user: models.User = Depends(get_current_user)
 ):
     logging.info(f"[用例生成] ========== 开始用例生成任务 ==========")
     logging.info(f"[用例生成] 用户: {current_user.username}, 需求长度: {len(requirement)}")
     logging.info(f"[用例生成] 图片上传: {'是' if image_file else '否'}, 复用路径: {reuse_image_path}, 技能ID: {skill_id}")
+    logging.info(f"[用例生成] 规则集ID: {rule_set_id}, 规则IDs: {rule_ids}, 项目ID: {project_id}, 策略: {strategy}")
+
+    parsed_rule_ids = None
+    if rule_ids:
+        try:
+            parsed_rule_ids = [int(r.strip()) for r in rule_ids.split(",") if r.strip()]
+        except ValueError:
+            parsed_rule_ids = None
+            logging.warning(f"[用例生成] 规则IDs解析失败: {rule_ids}")
     
     # --- A. 图片处理 ---
     final_image_path = None
@@ -214,21 +228,35 @@ async def generate_cases(
             logging.warning(f"[用例生成] 未找到向量模型，跳过 RAG 上下文")
 
         rag_context = ""
+        enhanced_context = None
         if embed_config:
             try:
-                # 注意：如果 RagService 初始化非常耗时，这里可能会轻微阻塞，但通常还好
+                from ..rule_engine import RuleAwareRagEngine
                 rag = RagService(
                     api_key=embed_config.api_key,
                     base_url=embed_config.base_url,
                     model_name=embed_config.model_name
                 )
-                docs = rag.search(requirement, k=3)
-                rag_context = "\n\n".join(
-                    [f"--- 参考规则/用例 {i + 1} ---\n{d.page_content}" for i, d in enumerate(docs)])
-                logging.info(f"[用例生成] RAG查询成功，获取到 {len(docs)} 条参考文档")
+                engine = RuleAwareRagEngine(db, rag)
+                enhanced_context = engine.build_enhanced_context(
+                    requirement=requirement,
+                    project_id=project_id,
+                    rule_set_id=rule_set_id,
+                    rule_ids=parsed_rule_ids,
+                    strategy=strategy,
+                    top_k_rules=top_k_rules,
+                )
+                rag_context = enhanced_context["context_text"]
+                logging.info(f"[用例生成] 规则引擎: 结构化规则 {enhanced_context['applied_rule_count']}条, 语义片段 {enhanced_context['semantic_doc_count']}条, 条件 {enhanced_context['condition_count']}条")
             except Exception as e:
-                logging.warning(f"[用例生成] RAG搜索失败: {e}，使用默认上下文")
-                rag_context = "（暂无历史参考数据）"
+                logging.warning(f"[用例生成] 规则引擎失败: {e}，使用基础RAG")
+                try:
+                    docs = rag.search(requirement, k=3)
+                    rag_context = "\n\n".join(
+                        [f"--- 参考规则/用例 {i + 1} ---\n{d.page_content}" for i, d in enumerate(docs)])
+                except Exception as e2:
+                    logging.warning(f"[用例生成] 基础RAG也失败: {e2}")
+                    rag_context = "（暂无历史参考数据）"
         
         # 3. 获取技能提示词（新增）
         system_prompt = None
@@ -446,6 +474,11 @@ async def generate_cases(
         
         new_record.result_json = json.loads(json_str)
         new_record.status = "success"
+        if enhanced_context:
+            new_record.applied_rule_ids = enhanced_context.get("applied_rule_ids", [])
+            new_record.applied_rule_set_id = rule_set_id
+            new_record.applied_skill_id = skill_id
+            new_record.rag_context_detail = enhanced_context.get("rag_context_detail", {})
         logging.info(f"[用例生成] 用例生成成功，记录ID: {new_record.id}, 用例数量: {len(new_record.result_json)}")
 
     except Exception as e:

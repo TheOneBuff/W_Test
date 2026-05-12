@@ -331,3 +331,162 @@ class ExecutorOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class TestRuleCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    rule_content: str
+    rule_type: str
+    scope_type: str = "global"
+    project_id: Optional[int] = None
+    module_name: Optional[str] = None
+    priority: str = "P1"
+    is_active: bool = True
+    parent_rule_id: Optional[int] = None
+    tags: Optional[List[str]] = None
+    condition_expr: Optional[str] = None
+    example: Optional[str] = None
+
+
+class TestRuleUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    rule_content: Optional[str] = None
+    rule_type: Optional[str] = None
+    scope_type: Optional[str] = None
+    project_id: Optional[int] = None
+    module_name: Optional[str] = None
+    priority: Optional[str] = None
+    is_active: Optional[bool] = None
+    parent_rule_id: Optional[int] = None
+    tags: Optional[List[str]] = None
+    condition_expr: Optional[str] = None
+    example: Optional[str] = None
+
+
+class TestRuleOut(BaseModel):
+    id: int
+    name: str
+    description: Optional[str] = None
+    rule_content: str
+    rule_type: str
+    scope_type: str
+    project_id: Optional[int] = None
+    module_name: Optional[str] = None
+    priority: str
+    is_active: bool
+    parent_rule_id: Optional[int] = None
+    tags: Optional[Any] = None
+    condition_expr: Optional[str] = None
+    example: Optional[str] = None
+    version: int
+    created_by: Optional[int] = None
+    create_time: datetime
+    update_time: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class TestConditionCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    condition_content: str
+    condition_type: str
+    rule_id: Optional[int] = None
+    scope_type: str = "global"
+    project_id: Optional[int] = None
+    module_name: Optional[str] = None
+    tags: Optional[List[str]] = None
+    is_active: bool = True
+
+
+class TestConditionUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    condition_content: Optional[str] = None
+    condition_type: Optional[str] = None
+    rule_id: Optional[int] = None
+    scope_type: Optional[str] = None
+    project_id: Optional[int] = None
+    module_name: Optional[str] = None
+    tags: Optional[List[str]] = None
+    is_active: Optional[bool] = None
+
+
+class TestConditionOut(BaseModel):
+    id: int
+    name: str
+    description: Optional[str] = None
+    condition_content: str
+    condition_type: str
+    rule_id: Optional[int] = None
+    scope_type: str
+    project_id: Optional[int] = None
+    module_name: Optional[str] = None
+    tags: Optional[Any] = None
+    is_active: bool
+    created_by: Optional[int] = None
+    create_time: datetime
+    update_time: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class RuleSetCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    set_type: str = "custom"
+    project_id: Optional[int] = None
+    is_active: bool = True
+    is_default: bool = False
+    rule_ids: Optional[List[int]] = None
+
+
+class RuleSetUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    set_type: Optional[str] = None
+    project_id: Optional[int] = None
+    is_active: Optional[bool] = None
+    is_default: Optional[bool] = None
+    rule_ids: Optional[List[int]] = None
+
+
+class RuleSetOut(BaseModel):
+    id: int
+    name: str
+    description: Optional[str] = None
+    set_type: str
+    project_id: Optional[int] = None
+    is_active: bool
+    is_default: bool
+    created_by: Optional[int] = None
+    create_time: datetime
+    update_time: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class RuleSetDetailOut(RuleSetOut):
+    rules: List[TestRuleOut] = []
+
+
+class GenerateWithRulesRequest(BaseModel):
+    requirement: str
+    image_path: Optional[str] = None
+    skill_id: Optional[int] = None
+    rule_set_id: Optional[int] = None
+    rule_ids: Optional[List[int]] = None
+    project_id: Optional[int] = None
+    strategy: str = "hybrid"
+    top_k_rules: int = 5
+
+
+class RuleSearchResult(BaseModel):
+    rule: TestRuleOut
+    relevance_score: float
+    source: str
