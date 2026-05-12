@@ -336,3 +336,8 @@ class RagService:
 
     def search(self, query: str, k=4):
         return self.vector_db.similarity_search(query, k=k)
+
+    def search_with_filter(self, query: str, k=5, filter_dict: dict = None):
+        if filter_dict:
+            return self.vector_db.similarity_search(query, k=k, filter=filter_dict)
+        return self.vector_db.similarity_search(query, k=k)

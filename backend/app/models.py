@@ -276,6 +276,13 @@ class KnowledgeDocument(Base):
     chunk_count = Column(Integer, default=0)  # 切分片段数
     create_time = Column(DateTime, default=datetime.now)
 
+    # [增强] 文档业务分类
+    category = Column(String(50), nullable=True)  # rule / testcase / requirement / reference
+    rule_type = Column(String(50), nullable=True)  # boundary / equivalence / constraint / biz_rule / security
+    tags = Column(JSON, nullable=True)  # 标签
+    project_id = Column(Integer, index=True, nullable=True)  # 关联项目
+    is_rule_doc = Column(Boolean, default=False)  # 是否是一条规则文档
+
 
 class TestCaseRecord(Base):
     __tablename__ = "test_case_records"
@@ -297,6 +304,12 @@ class TestCaseRecord(Base):
 
     create_time = Column(DateTime, default=datetime.now)
     update_time = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    # [增强] 生成追溯
+    applied_rule_ids = Column(JSON, nullable=True)
+    applied_rule_set_id = Column(Integer, nullable=True)
+    applied_skill_id = Column(Integer, nullable=True)
+    rag_context_detail = Column(JSON, nullable=True)
 
 
 class Material(Base):
@@ -367,3 +380,87 @@ class Executor(Base):
 
     create_time = Column(DateTime, default=datetime.now)
     update_time = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+
+class TestRule(Base):
+    __tablename__ = "test_rules"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(200), nullable=False)
+    description = Column(Text, nullable=True)
+    rule_content = Column(Text, nullable=False)
+
+    rule_type = Column(String(50), nullable=False)
+
+    scope_type = Column(String(20), default="global")
+    project_id = Column(Integer, index=True, nullable=True)
+    module_name = Column(String(100), nullable=True)
+
+    priority = Column(String(10), default="P1")
+    is_active = Column(Boolean, default=True)
+
+    parent_rule_id = Column(Integer, nullable=True)
+
+    tags = Column(JSON, nullable=True)
+
+    condition_expr = Column(Text, nullable=True)
+    example = Column(Text, nullable=True)
+
+    version = Column(Integer, default=1)
+
+    created_by = Column(Integer, nullable=True)
+    create_time = Column(DateTime, default=datetime.now)
+    update_time = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+
+class TestCondition(Base):
+    __tablename__ = "test_conditions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(200), nullable=False)
+    description = Column(Text, nullable=True)
+    condition_content = Column(Text, nullable=False)
+
+    condition_type = Column(String(50), nullable=False)
+
+    rule_id = Column(Integer, index=True, nullable=True)
+
+    scope_type = Column(String(20), default="global")
+    project_id = Column(Integer, nullable=True)
+    module_name = Column(String(100), nullable=True)
+
+    tags = Column(JSON, nullable=True)
+
+    is_active = Column(Boolean, default=True)
+    created_by = Column(Integer, nullable=True)
+    create_time = Column(DateTime, default=datetime.now)
+    update_time = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+
+class RuleSet(Base):
+    __tablename__ = "rule_sets"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(200), nullable=False)
+    description = Column(Text, nullable=True)
+
+    set_type = Column(String(50), default="custom")
+
+    project_id = Column(Integer, index=True, nullable=True)
+
+    is_active = Column(Boolean, default=True)
+    is_default = Column(Boolean, default=False)
+
+    created_by = Column(Integer, nullable=True)
+    create_time = Column(DateTime, default=datetime.now)
+    update_time = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+
+class RuleSetMapping(Base):
+    __tablename__ = "rule_set_mappings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    rule_set_id = Column(Integer, index=True, nullable=False)
+    rule_id = Column(Integer, index=True, nullable=False)
+    condition_id = Column(Integer, nullable=True)
+    sort_order = Column(Integer, default=0)

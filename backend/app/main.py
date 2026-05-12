@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from .database import engine, Base
-from .api import auth, user, llm, menus, testcases, projects, environments, periodic, dashboard,knowledge,vision_llm, materials, notification, skills, pc
+from .api import auth, user, llm, menus, testcases, projects, environments, periodic, dashboard,knowledge,vision_llm, materials, notification, skills, pc, rules, conditions, rule_sets
 from .tasks import run_midscene_task
 from .core.scheduler import start_scheduler
 from .core.logging import app_logger
@@ -22,6 +22,9 @@ app.include_router(materials.router, prefix="/api/materials", tags=["Materials"]
 app.include_router(notification.router, prefix="/api/notification", tags=["Notification"])
 app.include_router(skills.router, prefix="/api/skills", tags=["Skills"])
 app.include_router(pc.router, prefix="/api/pc", tags=["PC Executor"])
+app.include_router(rules.router, prefix="/api/rules", tags=["Rules"])
+app.include_router(conditions.router, prefix="/api/conditions", tags=["Conditions"])
+app.include_router(rule_sets.router, prefix="/api/rule-sets", tags=["RuleSets"])
 
 @app.get("/")
 def root(): return {"status": "ok"}

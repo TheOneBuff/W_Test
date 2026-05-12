@@ -110,6 +110,12 @@ const router = createRouter({
           meta: { title: '技能管理' }
         },
         {
+          path: '/rules',
+          name: 'RuleManage',
+          component: () => import('../views/RuleManage.vue'),
+          meta: { title: '规则管理' }
+        },
+        {
           path: '/tools/ai-diff',
           name: 'AiDiff',
           component: () => import('../views/AiDiff.vue'), // 动态加载

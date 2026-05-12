@@ -60,7 +60,7 @@ def exec_periodic_task(task_id: int):
         # 查找该用户激活的 LLM 配置
         llm_config = db.query(LLMConfig).filter(
             LLMConfig.user_id == owner.id,
-            LLMConfig.is_active == True
+            LLMConfig.is_active_exec == True
         ).first()
 
         if not llm_config or not llm_config.api_key:
